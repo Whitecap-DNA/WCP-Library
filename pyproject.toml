@@ -3,12 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "<Name>"
-version = "<Version#>"
+name = "wcap-library"
+version = "1.0.0"
 authors = [
-    { name="<Author Name>", email="<Author Email>" },
+    { name="Mitch Petersen", email="mitch.petersen@wcap.ca" },
 ]
-description = "<Basic Description>"
+description = "Common utilities for WCAP projects"
 requires-python = ">=3.7"
 classifiers = [
    "Programming Language :: Python :: 3",
