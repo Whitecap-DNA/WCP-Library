@@ -1,5 +1,7 @@
+aiohttp~=3.10.10
+oracledb~=2.4.1
+pandas~=2.2.3
+pip-system-certs~=4.0
 pycryptodome~=3.21.0
 requests~=2.32.3
 yarl~=1.16.0
-pandas~=2.2.3
-oracledb~=2.4.1

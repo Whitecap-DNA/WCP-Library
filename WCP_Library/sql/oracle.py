@@ -1,6 +1,7 @@
 import logging
 from functools import wraps
 from time import sleep
+from typing import Optional
 
 import pandas as pd
 import oracledb
@@ -19,12 +20,14 @@ def retry(f: callable) -> callable:
 
     @wraps(f)
     def wrapper(self, *args, **kwargs):
+        self._retry_count = 0
         while True:
             try:
                 return f(self, *args, **kwargs)
             except oracledb.OperationalError as e:
                 error_obj, = e.args
-                if error_obj.full_code in ['ORA-01033', 'DPY-6005']:
+                if error_obj.full_code in ['ORA-01033', 'DPY-6005'] and self._retry_count < self.retry_limit:
+                    self._retry_count += 1
                     logger.debug("Oracle connection error")
                     logger.debug(error_obj.message)
                     logger.info("Waiting 5 minutes before retrying Oracle connection")
@@ -69,12 +72,16 @@ class SQLConnection(object):
     """
 
     def __init__(self):
-        self._username = None
-        self._password = None
-        self._hostname = None
-        self._port = None
-        self._database = None
-        self._session_pool = None
+        self._username: Optional[str] = None
+        self._password: Optional[str] = None
+        self._hostname: Optional[str] = None
+        self._port: Optional[int] = None
+        self._database: Optional[str] = None
+        self._sid: Optional[str] = None
+        self._session_pool: Optional[ConnectionPool] = None
+
+        self._retry_count = 0
+        self.retry_limit = 50
 
     @retry
     def connect(self) -> None:
@@ -84,21 +91,29 @@ class SQLConnection(object):
         :return: None
         """
 
-        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port, self._database)
+        sid_or_service = self._database if self._database else self._sid
 
-    def unpack_user(self, connectionDetails: dict) -> None:
+        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port, sid_or_service)
+
+    def set_user(self, credentials_dict: dict) -> None:
         """
-        Unpack the user credentials
+        Set the user credentials and connect
 
-        :param connectionDetails: dictionary of connection details
+        :param credentials_dict: dictionary of connection details
         :return: None
         """
 
-        self._username = connectionDetails['username']
-        self._password = connectionDetails['password']
-        self._hostname = connectionDetails['hostname']
-        self._port = int(connectionDetails['port'])
-        self._database = connectionDetails['database']
+        if not any([self._database, self._sid]):
+            raise ValueError("Either Service or SID must be provided")
+
+        self._username: Optional[str] = credentials_dict['UserName']
+        self._password: Optional[str] = credentials_dict['Password']
+        self._hostname: Optional[str] = credentials_dict['Host']
+        self._port: Optional[int] = int(credentials_dict['Port'])
+        self._database: Optional[str] = credentials_dict['Service'] if 'Service' in credentials_dict else None
+        self._sid: Optional[str] = credentials_dict['SID'] if 'SID' in credentials_dict else None
+
+        self.connect()
 
     def close_connection(self) -> None:
         """
