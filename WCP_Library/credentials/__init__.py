@@ -18,6 +18,7 @@ def generate_password(length: int=12, use_nums: bool=True, use_special: bool=Tru
     :param force_spec: Requires the password to contain at least one special character
     :return:
     """
+
     letters = string.ascii_letters
     digits = string.digits
     if special_chars_override:
