@@ -6,7 +6,7 @@ class MissingCredentialsError(KeyError):
     pass
 
 
-def generate_password(length: int=12, use_nums: bool=True, use_special: bool=True, special_chars_override: list=None, force_num: bool=True, force_spec: bool=True):
+def generate_password(length: int=12, use_nums: bool=True, use_special: bool=True, special_chars_override: list=None, force_num: bool=True, force_spec: bool=True) -> str:
     """
     Function to generate a random password
 

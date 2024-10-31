@@ -6,7 +6,7 @@ class MissingCredentialsError(KeyError):
     pass
 
 
-def generate_password(length: int=12, use_nums: bool=True, use_special: bool=True, special_chars_override: list=None, force_num: bool=True, force_spec: bool=True):
+async def generate_password(length: int=12, use_nums: bool=True, use_special: bool=True, special_chars_override: list=None, force_num: bool=True, force_spec: bool=True) -> str:
     """
     Function to generate a random password
 
@@ -16,8 +16,9 @@ def generate_password(length: int=12, use_nums: bool=True, use_special: bool=Tru
     :param special_chars_override: List of special characters to use
     :param force_num: Requires the password to contain at least one number
     :param force_spec: Requires the password to contain at least one special character
-    :return:
+    :return: Password
     """
+
     letters = string.ascii_letters
     digits = string.digits
     if special_chars_override:
@@ -37,12 +38,12 @@ def generate_password(length: int=12, use_nums: bool=True, use_special: bool=Tru
 
     if (use_nums and force_num) and (use_special and force_spec):
         while pwd[0].isdigit() or not any(char.isdigit() for char in pwd) or not any(char in pwd for char in special_chars):
-            pwd = generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
+            pwd = await generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
     elif use_nums and force_num:
         while pwd[0].isdigit() or not any(char.isdigit() for char in pwd):
-            pwd = generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
+            pwd = await generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
     elif use_special and force_spec:
         while not any(char in pwd for char in special_chars):
-            pwd = generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
+            pwd = await generate_password(length, use_nums, use_special, special_chars_override, force_num, force_spec)
 
     return pwd
