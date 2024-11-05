@@ -14,6 +14,12 @@ def retry(f: callable) -> callable:
     """
     Decorator to retry a function
 
+    Only retries on:
+
+    ORA-01033: ORACLE initialization or shutdown in progress
+
+    DPY-6005: Connection to the database failed
+
     :param f: function
     :return: function
     """
