@@ -1,47 +1,13 @@
-import asyncio
 import logging
-from functools import wraps
 from typing import Optional
 
 import pandas as pd
 import oracledb
 from oracledb import AsyncConnectionPool
 
+from WCP_Library.async_sql import retry
+
 logger = logging.getLogger(__name__)
-
-
-def retry(f: callable) -> callable:
-    """
-    Decorator to retry a function
-
-    Only retries on:
-
-    ORA-01033: ORACLE initialization or shutdown in progress
-
-    DPY-6005: Connection to the database failed
-
-    :param f: function
-    :return: function
-    """
-
-    @wraps(f)
-    async def wrapper(self, *args, **kwargs):
-        self._retry_count = 0
-        while True:
-            try:
-                return await f(self, *args, **kwargs)
-            except oracledb.OperationalError as e:
-                error_obj, = e.args
-                if error_obj.full_code in ['ORA-01033', 'DPY-6005'] and self._retry_count < self.retry_limit:
-                    self._retry_count += 1
-                    logger.debug("Oracle connection error")
-                    logger.debug(error_obj.message)
-                    logger.info("Waiting 5 minutes before retrying Oracle connection")
-                    await asyncio.sleep(300)
-                else:
-                    raise e
-    return wrapper
-
 
 
 async def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str) -> AsyncConnectionPool:
@@ -78,6 +44,7 @@ class SQLConnection(object):
     """
 
     def __init__(self):
+        self._db_service: str = "Oracle"
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
@@ -88,6 +55,7 @@ class SQLConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
+        self.retry_error_codes = ['ORA-01033', 'DPY-6005']
 
     @retry
     async def _connect(self) -> None:
@@ -120,7 +88,7 @@ class SQLConnection(object):
         self._database: Optional[str] = credentials_dict['Service'] if 'Service' in credentials_dict else None
         self._sid: Optional[str] = credentials_dict['SID'] if 'SID' in credentials_dict else None
 
-        await self.connect()
+        await self._connect()
 
     async def close_connection(self) -> None:
         """

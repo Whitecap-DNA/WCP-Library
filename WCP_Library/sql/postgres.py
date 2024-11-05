@@ -1,51 +1,13 @@
 import logging
-from functools import wraps
-from time import sleep
 from typing import Optional
 
 import pandas as pd
-import psycopg
+from psycopg.sql import SQL
 from psycopg_pool import ConnectionPool
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from psycopg.sql import SQL
+from WCP_Library.sql import retry
 
 logger = logging.getLogger(__name__)
-
-
-def retry(f: callable) -> callable:
-    """
-    Decorator to retry a function
-
-    Only retries on:
-
-    08001: Connection does not exist
-
-    08004: Server rejected the connection
-
-    :param f: function
-    :return: function
-    """
-
-    @wraps(f)
-    def wrapper(self, *args, **kwargs):
-        self._retry_count = 0
-        while True:
-            try:
-                return f(self, *args, **kwargs)
-            except psycopg.OperationalError as e:
-                error_obj, = e.args
-                if error_obj.full_code in ['08001', '08004'] and self._retry_count < self.retry_limit:
-                    self._retry_count += 1
-                    logger.debug("Postgres connection error")
-                    logger.debug(error_obj.message)
-                    logger.info("Waiting 5 minutes before retrying Oracle connection")
-                    sleep(300)
-                else:
-                    raise e
-    return wrapper
-
 
 
 def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str) -> ConnectionPool:
@@ -88,9 +50,10 @@ class SQLConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
+        self.retry_error_codes = ['08001', '08004']
 
     @retry
-    def connect(self) -> None:
+    def _connect(self) -> None:
         """
         Connect to the warehouse
 
@@ -113,7 +76,7 @@ class SQLConnection(object):
         self._port: Optional[int] = int(credentials_dict['Port'])
         self._database: Optional[str] = credentials_dict['Database']
 
-        self.connect()
+        self._connect()
 
     def close_connection(self) -> None:
         """
