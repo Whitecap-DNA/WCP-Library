@@ -54,7 +54,7 @@ class SQLConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['ORA-01033', 'DPY-6005']
+        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011']
 
     @retry
     def _connect(self) -> None:
