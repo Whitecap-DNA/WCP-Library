@@ -5,7 +5,7 @@ import pandas as pd
 from psycopg.sql import SQL
 from psycopg_pool import ConnectionPool
 
-from WCP_Library.sql import retry
+from wcp_library.sql import retry
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def connect_warehouse(username: str, password: str, hostname: str, port: int, da
     return session_pool
 
 
-class SQLConnection(object):
+class PostgresConnection(object):
     """
     SQL Connection Class
 

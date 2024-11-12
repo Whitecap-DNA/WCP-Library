@@ -5,7 +5,7 @@ import pandas as pd
 from psycopg.sql import SQL
 from psycopg_pool import AsyncConnectionPool
 
-from WCP_Library.async_sql import retry
+from wcp_library.async_sql import retry
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ async def connect_warehouse(username: str, password: str, hostname: str, port: i
     return session_pool
 
 
-class SQLConnection(object):
+class AsyncPostgresConnection(object):
     """
     SQL Connection Class
 

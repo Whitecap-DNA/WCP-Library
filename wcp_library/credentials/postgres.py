@@ -3,7 +3,7 @@ import logging
 import requests
 from yarl import URL
 
-from WCP_Library.credentials import MissingCredentialsError
+from wcp_library.credentials import MissingCredentialsError
 
 logger = logging.getLogger(__name__)
 

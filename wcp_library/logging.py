@@ -1,7 +1,7 @@
 import logging
 import sys
 
-from WCP_Library import application_path
+from wcp_library import application_path
 
 
 def create_log(level: int, iterations: int, project_name: str, mode: str = "w",

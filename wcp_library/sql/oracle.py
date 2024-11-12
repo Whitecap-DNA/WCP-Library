@@ -5,7 +5,7 @@ import pandas as pd
 import oracledb
 from oracledb import ConnectionPool
 
-from WCP_Library.sql import retry
+from wcp_library.sql import retry
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def connect_warehouse(username: str, password: str, hostname: str, port: int, da
     return session_pool
 
 
-class SQLConnection(object):
+class OracleConnection(object):
     """
     SQL Connection Class
 
