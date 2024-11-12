@@ -35,16 +35,7 @@ jobs:
             exit 0
           fi
 
-      - name: Create Tag
-        if: ${{ github.event_name == 'created' && github.ref == 'refs/heads/master' && env.tag_exists == 'false' }}
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git tag ${{ env.version }}
-          git push origin ${{ env.version }}
-
       - name: Checkout Tag
-        if: ${{ github.ref == 'refs/heads/master' && env.version != '' }}
         run: |
           git fetch --tags
           git checkout "refs/tags/${{ env.version }}"
