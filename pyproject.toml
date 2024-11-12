@@ -6,6 +6,7 @@ authors = ["Mitch-Petersen <mitch.petersen@wcap.ca>"]
 readme = "README.md"
 repository = "https://github.com/Whitecap-DNA/WCP-Library"
 documentation = "https://github.com/Whitecap-DNA/WCP-Library/wiki"
+packages = [{include = "wcp_library"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
