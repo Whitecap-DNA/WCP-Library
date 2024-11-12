@@ -38,8 +38,8 @@ jobs:
       - name: Checkout Tag
         run: |
           git fetch --tags
-          git checkout "refs/tags/${{ env.version }}"
-          echo "Checked out tag ${{ env.version }}"
+          git checkout "refs/tags/v${{ env.version }}"
+          echo "Checked out tag v${{ env.version }}"
 
       - name: Build project for distribution
         run: poetry build
