@@ -76,7 +76,7 @@ class OracleConnection(object):
         :return: None
         """
 
-        if not any([self._database, self._sid]):
+        if not all([credentials_dict['Service'], credentials_dict['SID']]):
             raise ValueError("Either Service or SID must be provided")
 
         self._username: Optional[str] = credentials_dict['UserName']

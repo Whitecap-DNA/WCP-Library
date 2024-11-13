@@ -2,6 +2,7 @@ import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def send_email(sender: str, recipients: list, subject: str, message=None):
     msg['To'] = ", ".join(recipients)
     msg['Date'] = formatdate(localtime=True)
     msg['Subject'] = subject
-    msg.attach(message)
+    msg.attach(MIMEText(message))
 
     smtpServer = 'mail.wcap.ca'
     server = smtplib.SMTP(smtpServer, 25)
@@ -45,7 +46,7 @@ def email_reporting(subject: str, message: str):
     msg['To'] = "Reporting@wcap.ca"
     msg['Date'] = formatdate(localtime=True)
     msg['Subject'] = subject
-    msg.attach(message)
+    msg.attach(MIMEText(message))
 
     smtpServer = 'mail.wcap.ca'
     server = smtplib.SMTP(smtpServer, 25)
@@ -73,7 +74,7 @@ def email_with_attachments(sender: str, recipients: list, subject: str, message=
     msg['To'] = ", ".join(recipients)
     msg['Date'] = formatdate(localtime=True)
     msg['Subject'] = subject
-    msg.attach(message)
+    msg.attach(MIMEText(message))
 
     for attachment in attachments:
         part = MIMEBase('application', "octet-stream")
