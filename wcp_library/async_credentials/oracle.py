@@ -122,7 +122,7 @@ class AsyncOracleCredentialManager:
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.put(str(self.password_url), json=data, headers=self.headers) as response:
+            async with session.post(str(self.password_url), json=data, headers=self.headers) as response:
                 if response.status == 201:
                     logger.debug(f"New credentials for {credentials_dict['UserName']} created")
                     return True
