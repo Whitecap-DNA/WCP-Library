@@ -67,8 +67,8 @@ class AsyncOracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                               sid_or_service)
+        self._session_pool = await connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                     sid_or_service)
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
