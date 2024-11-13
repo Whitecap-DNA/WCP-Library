@@ -32,8 +32,7 @@ async def connect_warehouse(username: str, password: str, hostname: str, port: i
         dsn=dsn,
         min=min_connections,
         max=max_connections,
-        increment=1,
-        encoding="UTF-8"
+        increment=1
     )
     return session_pool
 
