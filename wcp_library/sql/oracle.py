@@ -10,7 +10,8 @@ from wcp_library.sql import retry
 logger = logging.getLogger(__name__)
 
 
-def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str) -> ConnectionPool:
+def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
+                            max_connections: int) -> ConnectionPool:
     """
     Create Warehouse Connection
 
@@ -19,6 +20,8 @@ def connect_warehouse(username: str, password: str, hostname: str, port: int, da
     :param hostname: hostname
     :param port: port
     :param database: database
+    :param min_connections:
+    :param max_connections:
     :return: session_pool
     """
 
@@ -27,8 +30,8 @@ def connect_warehouse(username: str, password: str, hostname: str, port: int, da
         user=username,
         password=password,
         dsn=dsn,
-        min=2,
-        max=5,
+        min=min_connections,
+        max=max_connections,
         increment=1,
         threaded=True,
         encoding="UTF-8"
@@ -43,7 +46,7 @@ class OracleConnection(object):
     :return: None
     """
 
-    def __init__(self):
+    def __init__(self, min_connections: int = 2, max_connections: int = 5):
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
@@ -51,6 +54,9 @@ class OracleConnection(object):
         self._database: Optional[str] = None
         self._sid: Optional[str] = None
         self._session_pool: Optional[ConnectionPool] = None
+
+        self.min_connections = min_connections
+        self.max_connections = max_connections
 
         self._retry_count = 0
         self.retry_limit = 50
@@ -66,7 +72,8 @@ class OracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port, sid_or_service)
+        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                               sid_or_service, self.min_connections, self.max_connections)
 
     def set_user(self, credentials_dict: dict) -> None:
         """

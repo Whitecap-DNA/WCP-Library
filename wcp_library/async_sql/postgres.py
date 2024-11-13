@@ -10,7 +10,8 @@ from wcp_library.async_sql import retry
 logger = logging.getLogger(__name__)
 
 
-async def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str) -> AsyncConnectionPool:
+async def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
+                            max_connections: int) -> AsyncConnectionPool:
     """
     Create Warehouse Connection
 
@@ -19,6 +20,8 @@ async def connect_warehouse(username: str, password: str, hostname: str, port: i
     :param hostname: hostname
     :param port: port
     :param database: database
+    :param min_connections:
+    :param max_connections:
     :return: session_pool
     """
 
@@ -26,8 +29,8 @@ async def connect_warehouse(username: str, password: str, hostname: str, port: i
 
     session_pool = AsyncConnectionPool(
         conninfo=url,
-        min_size=2,
-        max_size=5,
+        min_size=min_connections,
+        max_size=max_connections,
     )
     await session_pool.open()
     return session_pool
@@ -40,13 +43,16 @@ class AsyncPostgresConnection(object):
     :return: None
     """
 
-    def __init__(self):
+    def __init__(self, min_connections: int = 2, max_connections: int = 5):
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
         self._port: Optional[int] = None
         self._database: Optional[str] = None
         self._session_pool: Optional[AsyncConnectionPool] = None
+
+        self.min_connections = min_connections
+        self.max_connections = max_connections
 
         self._retry_count = 0
         self.retry_limit = 50
@@ -60,7 +66,8 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        self._session_pool = await connect_warehouse(self._username, self._password, self._hostname, self._port, self._database)
+        self._session_pool = await connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                     self._database, self.min_connections, self.max_connections)
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
