@@ -11,4 +11,4 @@ if getattr(sys, 'frozen', False):
     application_path = sys.executable + '-'
     application_path = Path(application_path).parent
 else:
-    application_path = Path(os.path.dirname(os.path.abspath(__file__)))
+    application_path = Path(os.environ['VIRTUAL_ENV']).parent
