@@ -9,7 +9,7 @@ documentation = "https://github.com/Whitecap-DNA/WCP-Library/wiki"
 packages = [{include = "wcp_library"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.12"
 aiohttp = "^3.10.10"
 oracledb = "^2.5.0"
 pandas = "^2.2.3"

@@ -183,7 +183,7 @@ class AsyncOracleConnection(object):
                     await cursor.execute(query, packed_data)
                 else:
                     await cursor.execute(query)
-                rows = cursor.fetchall()
+                rows = await cursor.fetchall()
         return rows
 
     @retry
