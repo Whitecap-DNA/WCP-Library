@@ -112,11 +112,10 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        await cursor.execute(query)
-        await connection.commit()
-        await self._session_pool.release(connection)
+        async with self._session_pool.acquire() as connection:
+            with connection.cursor() as cursor:
+                await cursor.execute(query)
+                await connection.commit()
 
     @retry
     async def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -128,11 +127,10 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        await cursor.execute(query, packed_values)
-        await connection.commit()
-        await self._session_pool.release(connection)
+        async with self._session_pool.acquire() as connection:
+            with connection.cursor() as cursor:
+                await cursor.execute(query, packed_values)
+                await connection.commit()
 
     @retry
     async def execute_multiple(self, queries: list[list[str, dict]]) -> None:
@@ -143,17 +141,16 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        for item in queries:
-            query = item[0]
-            packed_values = item[1]
-            if packed_values:
-                await cursor.execute(query, packed_values)
-            else:
-                await cursor.execute(query)
-        await connection.commit()
-        await self._session_pool.release(connection)
+        async with self._session_pool.acquire() as connection:
+            with connection.cursor() as cursor:
+                for item in queries:
+                    query = item[0]
+                    packed_values = item[1]
+                    if packed_values:
+                        await cursor.execute(query, packed_values)
+                    else:
+                        await cursor.execute(query)
+                await connection.commit()
 
     @retry
     async def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -165,11 +162,10 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        await cursor.executemany(query, dictionary)
-        await connection.commit()
-        await self._session_pool.release(connection)
+        async with self._session_pool.acquire() as connection:
+            with connection.cursor() as cursor:
+                await cursor.executemany(query, dictionary)
+                await connection.commit()
 
     @retry
     async def fetch_data(self, query: str, packed_data=None):
@@ -181,14 +177,13 @@ class AsyncOracleConnection(object):
         :return: rows
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        if packed_data:
-            await cursor.execute(query, packed_data)
-        else:
-            await cursor.execute(query)
-        rows = cursor.fetchall()
-        await self._session_pool.release(connection)
+        async with self._session_pool.acquire() as connection:
+            with connection.cursor() as cursor:
+                if packed_data:
+                    await cursor.execute(query, packed_data)
+                else:
+                    await cursor.execute(query)
+                rows = cursor.fetchall()
         return rows
 
     @retry
