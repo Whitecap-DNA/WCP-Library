@@ -10,8 +10,8 @@ from wcp_library.async_sql import retry
 logger = logging.getLogger(__name__)
 
 
-async def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
-                            max_connections: int) -> AsyncConnectionPool:
+async def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
+                             max_connections: int) -> AsyncConnectionPool:
     """
     Create Warehouse Connection
 
@@ -71,8 +71,8 @@ class AsyncOracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = await connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                                     sid_or_service, self.min_connections, self.max_connections)
+        self._session_pool = await _connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                      sid_or_service, self.min_connections, self.max_connections)
 
     async def set_user(self, credentials_dict: dict) -> None:
         """

@@ -10,8 +10,8 @@ from wcp_library.sql import retry
 logger = logging.getLogger(__name__)
 
 
-def connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
-                            max_connections: int) -> ConnectionPool:
+def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
+                       max_connections: int) -> ConnectionPool:
     """
     Create Warehouse Connection
 
@@ -72,8 +72,8 @@ class OracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                               sid_or_service, self.min_connections, self.max_connections)
+        self._session_pool = _connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                sid_or_service, self.min_connections, self.max_connections)
 
     def set_user(self, credentials_dict: dict) -> None:
         """
