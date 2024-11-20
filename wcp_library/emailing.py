@@ -7,7 +7,7 @@ from email.utils import formatdate
 from pathlib import Path
 
 
-def send_email(sender: str, recipients: list, subject: str, message=None):
+def send_email(sender: str, recipients: list, subject: str, message: str=None) -> None:
     """
     Function to send an email
 
@@ -32,7 +32,7 @@ def send_email(sender: str, recipients: list, subject: str, message=None):
     server.quit()
 
 
-def email_reporting(subject: str, message: str):
+def email_reporting(subject: str, message: str) -> None:
     """
     Function to email the reporting team from the Python email
 
@@ -55,7 +55,7 @@ def email_reporting(subject: str, message: str):
     server.quit()
 
 
-def email_with_attachments(sender: str, recipients: list, subject: str, message=None, attachments: list[Path]=None):
+def email_with_attachments(sender: str, recipients: list, subject: str, message: str=None, attachments: list[Path]=None) -> None:
     """
     Function to send an email with attachments
 
