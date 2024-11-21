@@ -11,8 +11,10 @@ packages = [{include = "wcp_library"}]
 [tool.poetry.dependencies]
 python = "^3.12"
 aiohttp = "^3.10.10"
+ftputil = "^5.1.0"
 oracledb = "^2.5.0"
 pandas = "^2.2.3"
+paramiko = "^3.5.0"
 pip-system-certs = "^4.0"
 psycopg = "^3.2.3"
 psycopg-binary = "^3.2.3"
