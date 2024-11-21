@@ -7,7 +7,7 @@ Commonly used functions for the D&A team.
 `pip install WCP-Library`
 
 ## Usage
-See Wiki for more information.
+See [Wiki](https://github.com/Whitecap-DNA/WCP-Library/wiki/) for more information.
 
 ## Authors and acknowledgment
 Mitch Petersen
