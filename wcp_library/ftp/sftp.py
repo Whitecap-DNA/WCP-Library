@@ -48,6 +48,8 @@ class SFTP:
         :return:
         """
 
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+
         logger.debug(f"Downloading {remote_file} to {local_file}")
         self.sftp_connection.get(str(remote_file), local_file)
 
@@ -59,6 +61,8 @@ class SFTP:
         :param regex_pattern:
         :return:
         """
+
+        local_dir.mkdir(parents=True, exist_ok=True)
 
         logger.debug(f"Downloading files from FTP server matching {regex_pattern} to {local_dir}")
         files = self.list_files()
