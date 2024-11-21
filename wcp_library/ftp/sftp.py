@@ -10,17 +10,21 @@ logger = logging.getLogger(__name__)
 
 
 class SFTP:
-    def __init__(self, host: str, port: int=22):
-        self.host: str = host
-        self.port: int = port
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
+    def __init__(self, host: Optional[str]=None, port: Optional[int]=21, password_vault_dict: Optional[dict]=None):
+        self.host: str = host if not password_vault_dict else password_vault_dict['Host']
+        self.port: int = port if not password_vault_dict else password_vault_dict['Port']
+        self._username: Optional[str] = None if not password_vault_dict else password_vault_dict['UserName']
+        self._password: Optional[str] = None if not password_vault_dict else password_vault_dict['Password']
 
         self.ssh = paramiko.SSHClient()
         # AutoAddPolicy automatically adds the hostname and new host key to the local HostKeys object
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        self.sftp_connection: Optional[paramiko.SFTP] = None
+        if not (self._username and self._password):
+            self.sftp_connection: Optional[paramiko.SFTP] = None
+        else:
+            self.ssh.connect(self.host, self.port, self._username, self._password)
+            self.sftp_connection = self.ssh.open_sftp()
 
     def login(self, username: str, password: str) -> None:
         """
