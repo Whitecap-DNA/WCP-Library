@@ -33,8 +33,6 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
         min=min_connections,
         max=max_connections,
         increment=1,
-        threaded=True,
-        encoding="UTF-8"
     )
     return session_pool
 
