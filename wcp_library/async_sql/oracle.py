@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import oracledb
 from oracledb import AsyncConnectionPool
@@ -204,14 +205,17 @@ class AsyncOracleConnection(object):
             bindList.append(':' + column)
         bind = ', '.join(bindList)
 
-        main_dict = dfObj.to_dict('records')
         if remove_nan:
-            for val, item in enumerate(main_dict):
-                for sub_item, value in item.items():
-                    if pd.isna(value):
-                        main_dict[val][sub_item] = None
-                    else:
-                        main_dict[val][sub_item] = value
+            dfObj = dfObj.replace({np.nan: None})
+        main_dict = dfObj.to_dict('records')
+
+        # if remove_nan:
+        #     for val, item in enumerate(main_dict):
+        #         for sub_item, value in item.items():
+        #             if pd.isna(value):
+        #                 main_dict[val][sub_item] = None
+        #             else:
+        #                 main_dict[val][sub_item] = value
 
         query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, bind)
         await self.execute_many(query, main_dict)
