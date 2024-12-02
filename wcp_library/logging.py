@@ -22,13 +22,16 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     :return:
     """
 
-    for i in range(iterations-1, 0, -1):
-        if (application_path / (project_name + f"_{i}.log")).exists():
-            (application_path / (project_name + f"_{i}.log")).rename((application_path / (project_name + f"_{i+1}.log")))
-    if (application_path / (project_name + ".log")).exists():
-        (application_path / (project_name + ".log")).rename((application_path / (project_name + "_1.log")))
-    if (application_path / (project_name + f"_{iterations}.log")).exists():
-        (application_path / (project_name + f"_{iterations}.log")).unlink()
+    possible_iterative_filenames = [(application_path / (project_name + ".log"))] + [application_path / (project_name + f"_{i + 1}.log") for i in range(iterations)]
+
+    if iterations == 0:
+        (application_path / (project_name + ".log")).unlink(missing_ok=True)
+    else:
+        last_file = possible_iterative_filenames[-1]
+        last_file.unlink(missing_ok=True)
+
+        for i in range(iterations, 0, -1):
+            possible_iterative_filenames[i - 1].rename(possible_iterative_filenames[i])
 
     logging.basicConfig(
         filename=(application_path / (project_name + ".log")),
