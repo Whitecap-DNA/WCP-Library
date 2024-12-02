@@ -31,7 +31,8 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
         last_file.unlink(missing_ok=True)
 
         for i in range(iterations, 0, -1):
-            possible_iterative_filenames[i - 1].rename(possible_iterative_filenames[i])
+            if possible_iterative_filenames[i - 1].exists():
+                possible_iterative_filenames[i - 1].rename(possible_iterative_filenames[i])
 
     logging.basicConfig(
         filename=(application_path / (project_name + ".log")),
