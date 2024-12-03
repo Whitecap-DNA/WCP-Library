@@ -13,7 +13,7 @@ class PostgresCredentialManager:
         self.password_url = URL("https://vault.wcap.ca/api/passwords/")
         self.api_key = passwordState_api_key
         self.headers = {"APIKey": self.api_key, 'Reason': 'Python Script Access'}
-        self._password_list_id = 207
+        self._password_list_id = 210
 
     def _get_credentials(self) -> dict:
         """
