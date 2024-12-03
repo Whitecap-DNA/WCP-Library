@@ -171,7 +171,7 @@ class AsyncPostgresConnection(object):
         return rows
 
     @retry
-    async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName, match_cols: list) -> None:
+    async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:
         """
         Remove matching data from the warehouse
 
@@ -181,13 +181,14 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
+        df = dfObj[match_cols]
         match_cols = ', '.join(match_cols)
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
         params = ' AND '.join(param_list)
 
-        main_dict = dfObj.to_dict('records')
+        main_dict = df.to_dict('records')
         query = """DELETE FROM {} WHERE {}""".format(outputTableName, params)
         await self.execute_many(query, main_dict)
 
