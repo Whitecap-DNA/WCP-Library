@@ -188,6 +188,27 @@ class AsyncOracleConnection(object):
         return rows
 
     @retry
+    async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName, match_cols: list) -> None:
+        """
+        Remove matching data from the warehouse
+
+        :param dfObj: DataFrame
+        :param outputTableName: output table name
+        :param match_cols: list of columns
+        :return: None
+        """
+
+        match_cols = ', '.join(match_cols)
+        param_list = []
+        for column in match_cols:
+            param_list.append(f"{column} = :{column}")
+        params = ' AND '.join(param_list)
+
+        main_dict = dfObj.to_dict('records')
+        query = f"""DELETE FROM {outputTableName} WHERE {params}"""
+        await self.execute_many(query, main_dict)
+
+    @retry
     async def export_DF_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
         """
         Export the DataFrame to the warehouse
@@ -208,14 +229,6 @@ class AsyncOracleConnection(object):
         if remove_nan:
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
-
-        # if remove_nan:
-        #     for val, item in enumerate(main_dict):
-        #         for sub_item, value in item.items():
-        #             if pd.isna(value):
-        #                 main_dict[val][sub_item] = None
-        #             else:
-        #                 main_dict[val][sub_item] = value
 
         query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, bind)
         await self.execute_many(query, main_dict)

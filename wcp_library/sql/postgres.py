@@ -149,7 +149,8 @@ class PostgresConnection(object):
         """
 
         with self._session_pool.connection() as connection:
-            connection.executemany(query, dictionary)
+            cursor = connection.cursor()
+            cursor.executemany(query, dictionary)
 
     @retry
     def fetch_data(self, query: SQL | str, packed_data=None):
@@ -169,6 +170,27 @@ class PostgresConnection(object):
                 cursor.execute(query)
             rows = cursor.fetchall()
         return rows
+
+    @retry
+    def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName, match_cols: list) -> None:
+        """
+        Remove matching data from the warehouse
+
+        :param dfObj: DataFrame
+        :param outputTableName: output table name
+        :param match_cols: list of columns
+        :return: None
+        """
+
+        match_cols = ', '.join(match_cols)
+        param_list = []
+        for column in match_cols:
+            param_list.append(f"{column} = %({column})s")
+        params = ' AND '.join(param_list)
+
+        main_dict = dfObj.to_dict('records')
+        query = """DELETE FROM {} WHERE {}""".format(outputTableName, params)
+        self.execute_many(query, main_dict)
 
     @retry
     def export_DF_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
@@ -191,14 +213,6 @@ class PostgresConnection(object):
         if remove_nan:
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
-
-        # if remove_nan:
-        #     for val, item in enumerate(main_dict):
-        #         for sub_item, value in item.items():
-        #             if pd.isna(value):
-        #                 main_dict[val][sub_item] = None
-        #             else:
-        #                 main_dict[val][sub_item] = value
 
         query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, params)
         self.execute_many(query, main_dict)
