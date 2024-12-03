@@ -183,7 +183,6 @@ class PostgresConnection(object):
         """
 
         df = dfObj[match_cols]
-        match_cols = ', '.join(match_cols)
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
