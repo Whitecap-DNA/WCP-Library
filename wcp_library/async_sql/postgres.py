@@ -185,7 +185,10 @@ class AsyncPostgresConnection(object):
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
-        params = ' AND '.join(param_list)
+        if len(param_list) > 1:
+            params = ' AND '.join(param_list)
+        else:
+            params = param_list[0]
 
         main_dict = df.to_dict('records')
         query = """DELETE FROM {} WHERE {}""".format(outputTableName, params)
