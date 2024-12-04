@@ -4,7 +4,7 @@ from abc import ABC,abstractmethod
 import aiohttp
 from yarl import URL
 
-from wcp_library.async_credentials import MissingCredentialsError
+from wcp_library.credentials import MissingCredentialsError
 
 logger = logging.getLogger(__name__)
 
