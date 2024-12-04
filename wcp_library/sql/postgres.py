@@ -245,6 +245,10 @@ class PostgresConnection(object):
         if remove_nan:
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
+        for record in main_dict:
+            for key in record:
+                if record[key] == '':
+                    record[key] = None
 
         query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, params)
         self.execute_many(query, main_dict)
