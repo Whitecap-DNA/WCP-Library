@@ -461,6 +461,10 @@ class AsyncPostgresConnection(object):
         if remove_nan:
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
+        for record in main_dict:
+            for key in record:
+                if record[key] == '':
+                    record[key] = None
 
         query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, params)
         await self.execute_many(query, main_dict)
@@ -488,4 +492,3 @@ class AsyncPostgresConnection(object):
 
         deleteQuery = """DELETE FROM {}""".format(tableName)
         await self.execute(deleteQuery)
-
