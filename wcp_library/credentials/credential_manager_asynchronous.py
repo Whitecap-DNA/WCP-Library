@@ -1,4 +1,5 @@
 import logging
+from abc import ABC,abstractmethod
 
 import aiohttp
 from yarl import URL
@@ -8,12 +9,12 @@ from wcp_library.async_credentials import MissingCredentialsError
 logger = logging.getLogger(__name__)
 
 
-class AsyncOracleCredentialManager:
-    def __init__(self, passwordState_api_key: str):
+class AsyncCredentialManager(ABC):
+    def __init__(self, passwordState_api_key: str, password_list_id: int):
         self.password_url = URL("https://vault.wcap.ca/api/passwords/")
         self.api_key = passwordState_api_key
         self.headers = {"APIKey": self.api_key, 'Reason': 'Python Script Access'}
-        self._password_list_id = 207
+        self._password_list_id = password_list_id
 
     async def _get_credentials(self) -> dict:
         """
@@ -39,6 +40,46 @@ class AsyncOracleCredentialManager:
             password_dict[password['UserName'].lower()] = password_info
         logger.debug("Credentials retrieved")
         return password_dict
+
+    async def _get_credential(self, password_id: int) -> dict:
+        """
+        Get a specific credential from the password list
+
+        :param password_id:
+        :return:
+        """
+
+        logger.debug(f"Getting credential with ID {password_id}")
+        url = (self.password_url / str(password_id))
+        async with aiohttp.ClientSession() as session:
+            async with session.get(str(url), headers=self.headers) as response:
+                password = await response.json()
+
+        if not password:
+            raise MissingCredentialsError(f"No credentials found with ID {password_id}")
+        password = password[0]
+
+        password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
+        for field in password['GenericFieldInfo']:
+            password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
+        return password_info
+
+    async def _publish_new_password(self, data: dict) -> bool:
+        """
+        Publish a new password to the password list
+
+        :param data:
+        :return:
+        """
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(str(self.password_url), json=data, headers=self.headers) as response:
+                if response.status == 201:
+                    logger.debug(f"New credentials for {data['UserName']} created")
+                    return True
+                else:
+                    logger.error(f"Failed to create new credentials for {data['UserName']}")
+                    return False
 
     async def get_credentials(self, username: str) -> dict:
         """
@@ -94,38 +135,6 @@ class AsyncOracleCredentialManager:
                     logger.error(f"Failed to update credentials for {credentials_dict['UserName']}")
                     return False
 
+    @abstractmethod
     async def new_credentials(self, credentials_dict: dict) -> bool:
-        """
-        Create a new credential entry
-
-        Credentials dictionary must have the following keys:
-            - UserName
-            - Password
-            - Host
-            - Port
-            - Service or SID
-
-        :param credentials_dict:
-        :return:
-        """
-
-        data = {
-            "PasswordListID": self._password_list_id,
-            "Title": credentials_dict['UserName'].upper() if "Title" not in credentials_dict else credentials_dict['Title'].upper(),
-            "Notes": credentials_dict['Notes'] if 'Notes' in credentials_dict else None,
-            "UserName": credentials_dict['UserName'].lower(),
-            "Password": credentials_dict['Password'],
-            "GenericField1": credentials_dict['Host'],
-            "GenericField2": credentials_dict['Port'],
-            "GenericField3": credentials_dict['Service'] if 'Service' in credentials_dict else None,
-            "GenericField4": credentials_dict['SID'] if 'SID' in credentials_dict else None
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(str(self.password_url), json=data, headers=self.headers) as response:
-                if response.status == 201:
-                    logger.debug(f"New credentials for {credentials_dict['UserName']} created")
-                    return True
-                else:
-                    logger.error(f"Failed to create new credentials for {credentials_dict['UserName']}")
-                    return False
+        raise NotImplementedError("Must override in child class")
