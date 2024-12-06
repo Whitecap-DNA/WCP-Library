@@ -75,3 +75,14 @@ class SeleniumHelper:
         """
 
         WebDriverWait(self.driver, timeout).until(expected_conditions.presence_of_element_located((By.CSS_SELECTOR, css_element)))
+
+    def wait_until_clickable(self, css_element: str, timeout: int = 30) -> None:
+        """
+        Wait until an element is clickable
+
+        :param css_element:
+        :param timeout:
+        :return:
+        """
+
+        WebDriverWait(self.driver, timeout).until(expected_conditions.element_to_be_clickable((By.CSS_SELECTOR, css_element)))
