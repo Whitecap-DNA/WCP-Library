@@ -36,6 +36,8 @@ class CredentialManager(ABC):
             for field in password['GenericFieldInfo']:
                 password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
             password_dict[password['UserName'].lower()] = password_info
+            if password['OTP']:
+                password_dict[password['UserName'].lower()]['OTP'] = password['OTP']
         logger.debug("Credentials retrieved")
         return password_dict
 
@@ -110,16 +112,16 @@ class CredentialManager(ABC):
         """
         Update the credentials for a specific username
 
-        Credentials dictionary must have the following keys:
-            - PasswordID
-            - UserName
-            - Password
+        Credentials dictionary must the same keys as the original dictionary from the get_credentials method
 
         The dictionary should be obtained from the get_credentials method and modified accordingly
 
         :param credentials_dict:
         :return: True if successful, False otherwise
         """
+
+        if "OTP" in credentials_dict:
+            credentials_dict.pop("OTP")
 
         logger.debug(f"Updating credentials for {credentials_dict['UserName']}")
         url = (self.password_url / str(self._password_list_id)).with_query("QueryAll")
