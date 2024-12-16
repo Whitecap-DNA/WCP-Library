@@ -2,8 +2,8 @@ import logging
 
 import aiohttp
 
-from wcp_library.credentials.credential_manager_asynchronous import AsyncCredentialManager
-from wcp_library.credentials.credential_manager_synchronous import CredentialManager
+from wcp_library.credentials._credential_manager_asynchronous import AsyncCredentialManager
+from wcp_library.credentials._credential_manager_synchronous import CredentialManager
 
 logger = logging.getLogger(__name__)
 

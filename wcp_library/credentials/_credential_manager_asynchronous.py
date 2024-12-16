@@ -101,6 +101,19 @@ class AsyncCredentialManager(ABC):
         logger.debug(f"Credentials for {username} retrieved")
         return return_credential
 
+    async def get_credential_by_id(self, password_id: int) -> dict:
+        """
+        Get the credentials for a specific Password ID
+
+        :param password_id:
+        :return:
+        """
+
+        logger.debug(f"Getting credentials for ID {password_id}")
+        credential = await self._get_credential(password_id)
+        logger.debug(f"Credentials for ID {password_id} retrieved")
+        return credential
+
     async def update_credential(self, credentials_dict: dict) -> bool:
         """
         Update username and password in PasswordState
