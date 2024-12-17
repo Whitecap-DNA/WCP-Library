@@ -64,6 +64,8 @@ class AsyncCredentialManager(ABC):
         password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
         for field in password['GenericFieldInfo']:
             password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
+        if password['OTP']:
+            password_info['OTP'] = password['OTP']
         return password_info
 
     async def _publish_new_password(self, data: dict) -> bool:
