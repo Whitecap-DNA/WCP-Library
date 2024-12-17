@@ -65,24 +65,44 @@ class SeleniumHelper:
             if b.text == text:
                 return b
 
-    def wait_until_element_visible(self, css_element: str, timeout: int = 30) -> None:
+    def wait_until_element_visible(self, css_element: Optional[str] = None, link_text: Optional[str] = None,
+                                   timeout: int = 30) -> None:
         """
         Wait until an element is visible
 
+        Must pass one of: css_element or link_text
+
         :param css_element:
+        :param link_text:
         :param timeout:
         :return:
         """
 
-        WebDriverWait(self.driver, timeout).until(expected_conditions.presence_of_element_located((By.CSS_SELECTOR, css_element)))
+        if not css_element and not link_text:
+            raise ValueError("Must pass one of: css_element or link_text")
 
-    def wait_until_clickable(self, css_element: str, timeout: int = 30) -> None:
+        if css_element:
+            WebDriverWait(self.driver, timeout).until(expected_conditions.presence_of_element_located((By.CSS_SELECTOR, css_element)))
+        elif link_text:
+            WebDriverWait(self.driver, timeout).until(expected_conditions.presence_of_element_located((By.LINK_TEXT, link_text)))
+
+    def wait_until_clickable(self, css_element: Optional[str] = None, link_text: Optional[str] = None,
+                             timeout: int = 30) -> None:
         """
         Wait until an element is clickable
 
+        Must pass one of: css_element or link_text
+
         :param css_element:
+        :param link_text:
         :param timeout:
         :return:
         """
 
-        WebDriverWait(self.driver, timeout).until(expected_conditions.element_to_be_clickable((By.CSS_SELECTOR, css_element)))
+        if not css_element and not link_text:
+            raise ValueError("Must pass one of: css_element or link_text")
+
+        if css_element:
+            WebDriverWait(self.driver, timeout).until(expected_conditions.element_to_be_clickable((By.CSS_SELECTOR, css_element)))
+        elif link_text:
+            WebDriverWait(self.driver, timeout).until(expected_conditions.element_to_be_clickable((By.LINK_TEXT, link_text)))
