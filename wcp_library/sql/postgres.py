@@ -402,7 +402,8 @@ class AsyncPostgresConnection(object):
         """
 
         async with self._session_pool.connection() as connection:
-            await connection.executemany(query, dictionary)
+            cursor = connection.cursor()
+            await cursor.executemany(query, dictionary)
 
     @async_retry
     async def fetch_data(self, query: SQL | str, packed_data=None):
