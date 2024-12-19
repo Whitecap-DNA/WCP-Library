@@ -3,6 +3,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from psycopg.conninfo import make_conninfo
 from psycopg.sql import SQL
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
@@ -26,10 +27,11 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
     :return: session_pool
     """
 
-    url = f"postgres://{username}:{password}@{hostname}:{port}/{database}"
+    conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
+    conninfo = make_conninfo(conn_string)
 
     session_pool = ConnectionPool(
-        conninfo=url,
+        conninfo=conninfo,
         min_size=min_connections,
         max_size=max_connections,
         open=True
@@ -52,14 +54,14 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
     :return: session_pool
     """
 
-    url = f"postgres://{username}:{password}@{hostname}:{port}/{database}"
+    conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
+    conninfo = make_conninfo(conn_string)
 
     session_pool = AsyncConnectionPool(
-        conninfo=url,
+        conninfo=conninfo,
         min_size=min_connections,
-        max_size=max_connections,
+        max_size=max_connections
     )
-    await session_pool.open()
     return session_pool
 
 
@@ -319,6 +321,7 @@ class AsyncPostgresConnection(object):
 
         self._session_pool = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
                                                             self._database, self.min_connections, self.max_connections)
+        await self._session_pool.open()
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
@@ -413,6 +416,7 @@ class AsyncPostgresConnection(object):
 
         async with self._session_pool.connection() as connection:
             cursor = connection.cursor()
+            # await cursor.execute("set datestyle = 'SQL, DMY'")
             if packed_data:
                 await cursor.execute(query, packed_data)
             else:
