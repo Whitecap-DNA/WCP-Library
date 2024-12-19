@@ -317,8 +317,8 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        self._session_pool = await _connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                                      self._database, self.min_connections, self.max_connections)
+        self._session_pool = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                            self._database, self.min_connections, self.max_connections)
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
