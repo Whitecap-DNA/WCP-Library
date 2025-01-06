@@ -184,7 +184,7 @@ class PostgresConnection(object):
             cursor.executemany(query, dictionary)
 
     @retry
-    def fetch_data(self, query: SQL | str, packed_data=None):
+    def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
         """
         Fetch the data from the query
 
@@ -406,7 +406,7 @@ class AsyncPostgresConnection(object):
             await cursor.executemany(query, dictionary)
 
     @async_retry
-    async def fetch_data(self, query: SQL | str, packed_data=None):
+    async def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
         """
         Fetch the data from the query
 
@@ -417,7 +417,6 @@ class AsyncPostgresConnection(object):
 
         async with self._session_pool.connection() as connection:
             cursor = connection.cursor()
-            # await cursor.execute("set datestyle = 'SQL, DMY'")
             if packed_data:
                 await cursor.execute(query, packed_data)
             else:

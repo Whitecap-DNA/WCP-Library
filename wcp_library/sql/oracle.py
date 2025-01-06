@@ -202,7 +202,7 @@ class OracleConnection(object):
         self._session_pool.release(connection)
 
     @retry
-    def fetch_data(self, query: str, packed_data=None):
+    def fetch_data(self, query: str, packed_data=None) -> list:
         """
         Fetch the data from the query
 
@@ -435,7 +435,7 @@ class AsyncOracleConnection(object):
                 await connection.commit()
 
     @async_retry
-    async def fetch_data(self, query: str, packed_data=None):
+    async def fetch_data(self, query: str, packed_data=None) -> list:
         """
         Fetch the data from the query
 
