@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from functools import wraps
 from time import sleep
@@ -32,6 +33,8 @@ def retry(f: callable) -> callable:
                     sleep(300)
                 else:
                     raise e
+            except Exception as e:
+                print()
     return wrapper
 
 
@@ -59,4 +62,6 @@ def async_retry(f: callable) -> callable:
                     await asyncio.sleep(300)
                 else:
                     raise e
+            except Exception as e:
+                print()
     return wrapper
