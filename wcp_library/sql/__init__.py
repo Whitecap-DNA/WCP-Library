@@ -33,8 +33,6 @@ def retry(f: callable) -> callable:
                     sleep(300)
                 else:
                     raise e
-            except Exception as e:
-                print()
     return wrapper
 
 
