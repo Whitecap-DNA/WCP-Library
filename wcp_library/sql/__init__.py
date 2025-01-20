@@ -60,6 +60,4 @@ def async_retry(f: callable) -> callable:
                     await asyncio.sleep(300)
                 else:
                     raise e
-            except Exception as e:
-                print()
     return wrapper
