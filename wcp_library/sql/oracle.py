@@ -89,7 +89,7 @@ class OracleConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011']
+        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103']
 
     @retry
     def _connect(self) -> None:
