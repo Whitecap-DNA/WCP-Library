@@ -1,6 +1,6 @@
-import os
 import sys
 from pathlib import Path
+from typing import Generator
 
 # PyInstaller import
 import pip_system_certs.wrapt_requests
@@ -15,13 +15,13 @@ else:
     application_path = Path().absolute()
 
 
-def divide_chunks(list_obj: list, size: int) -> list:
+def divide_chunks(list_obj: list, size: int) -> Generator:
     """
     Divide a list into chunks of size
 
     :param list_obj:
     :param size:
-    :return:
+    :return: Generator
     """
 
     for i in range(0, len(list_obj), size):
