@@ -23,7 +23,7 @@ def retry(f: callable) -> callable:
         while True:
             try:
                 return f(self, *args, **kwargs)
-            except (oracledb.OperationalError, psycopg.OperationalError) as e:
+            except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 error_obj, = e.args
                 if error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                     self._retry_count += 1
@@ -50,7 +50,7 @@ def async_retry(f: callable) -> callable:
         while True:
             try:
                 return await f(self, *args, **kwargs)
-            except (oracledb.OperationalError, psycopg.OperationalError) as e:
+            except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 error_obj, = e.args
                 if error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                     self._retry_count += 1
