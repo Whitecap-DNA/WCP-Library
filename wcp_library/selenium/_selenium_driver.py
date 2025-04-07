@@ -1,40 +1,20 @@
-from pathlib import Path
+from abc import ABC
+from dataclasses import field
 from typing import Optional
 
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.remote.webelement import WebElement
-from webdriver_manager.chrome import ChromeDriverManager
 
 
-class SeleniumHelper:
-    def __init__(self, headless: bool = False, download_path: Optional[Path] = None):
+class SeleniumDriver(ABC):
+    def __init__(self, headless: bool = True, download_path: str = None):
         self._headless = headless
         self._download_path = download_path
+        self.driver = field(init=False)
 
-        opt = webdriver.ChromeOptions()
-        opt.add_argument("--start-maximized")
-        if headless:
-            opt.add_argument('headless')
-
-        opt.page_load_strategy = 'eager'
-
-        experimental_options_dict = {"download.prompt_for_download": False,
-                                        "download.directory_upgrade": True,
-                                        "safebrowsing.enabled": True}
-        if download_path:
-            experimental_options_dict["download.default_directory"] = str(download_path)
-
-        opt.add_experimental_option("prefs", experimental_options_dict)
-        opt.timeouts = {'implicit': 5000}
-
-        self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opt)
-
-
-    def find_button_by_text(self, text: str) -> WebElement:
+    def find_button_by_text(self, text: str) -> WebElement | None:
         """
         Find a button by its text
 
@@ -52,7 +32,7 @@ class SeleniumHelper:
             if text in b.text:
                 return b
 
-    def find_span_by_text(self, text: str) -> WebElement:
+    def find_span_by_text(self, text: str) -> WebElement | None:
         """
         Find a span by its text
 

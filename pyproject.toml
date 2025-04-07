@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wcp-library"
-version = "1.4.7"
+version = "1.5.1"
 description = "Common utilites for internal development at WCP"
 authors = ["Mitch-Petersen <mitch.petersen@wcap.ca>"]
 readme = "README.md"
@@ -12,6 +12,7 @@ packages = [{include = "wcp_library"}]
 python = "^3.12"
 aiohttp = "^3.10.10"
 ftputil = "^5.1.0"
+get-gecko-driver = "^1.4"
 oracledb = "^2.5.0"
 pandas = "^2.2.3"
 paramiko = "^3.5.0"
@@ -20,11 +21,11 @@ psycopg = "^3.2.3"
 psycopg-binary = "^3.2.3"
 psycopg-pool = "^3.2.3"
 pycryptodome = "^3.21.0"
+pytz = "^2024.2"
 requests = "^2.32.3"
-selenium = "^4.27.1"
+selenium = "^4.31.0"
 webdriver-manager = "^4.0.2"
 yarl = "^1.17.1"
-pytz = "^2024.2"
 
 [build-system]
 requires = ["poetry-core"]
