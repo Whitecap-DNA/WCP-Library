@@ -39,7 +39,7 @@ class FirefoxSeleniumHelper(SeleniumDriver):
         opt = webdriver.FirefoxOptions()
         opt.add_argument("--start-maximized")
         if headless:
-            opt.add_argument('headless')
+            opt.add_argument('--headless')
 
         opt.page_load_strategy = 'eager'
 
