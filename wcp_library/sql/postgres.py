@@ -34,6 +34,7 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
         conninfo=conninfo,
         min_size=min_connections,
         max_size=max_connections,
+        kwargs={'options': '-c datestyle=ISO,YMD'},
         open=True
     )
     return session_pool
@@ -60,7 +61,8 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
     session_pool = AsyncConnectionPool(
         conninfo=conninfo,
         min_size=min_connections,
-        max_size=max_connections
+        max_size=max_connections,
+        kwargs={"options": "-c datestyle=ISO,YMD"}
     )
     return session_pool
 
