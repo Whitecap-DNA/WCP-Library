@@ -62,7 +62,8 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
         conninfo=conninfo,
         min_size=min_connections,
         max_size=max_connections,
-        kwargs={"options": "-c datestyle=ISO,YMD"}
+        kwargs={"options": "-c datestyle=ISO,YMD"},
+        open=False
     )
     return session_pool
 
