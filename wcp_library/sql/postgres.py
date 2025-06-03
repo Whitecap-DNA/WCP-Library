@@ -1,8 +1,11 @@
 import logging
-from typing import Optional
+from contextlib import _GeneratorContextManager
+from typing import Optional, Any
 
 import numpy as np
 import pandas as pd
+import psycopg
+from psycopg import AsyncConnection, Connection
 from psycopg.conninfo import make_conninfo
 from psycopg.sql import SQL
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
-                       max_connections: int) -> ConnectionPool:
+                       max_connections: int, use_pool: bool) -> Connection | ConnectionPool:
     """
     Create Warehouse Connection
 
@@ -30,18 +33,24 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
     conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
     conninfo = make_conninfo(conn_string)
 
-    session_pool = ConnectionPool(
-        conninfo=conninfo,
-        min_size=min_connections,
-        max_size=max_connections,
-        kwargs={'options': '-c datestyle=ISO,YMD'},
-        open=True
-    )
-    return session_pool
+    if use_pool:
+        logger.debug(f"Creating connection pool with min size {min_connections} and max size {max_connections}")
+        session_pool = ConnectionPool(
+            conninfo=conninfo,
+            min_size=min_connections,
+            max_size=max_connections,
+            kwargs={'options': '-c datestyle=ISO,YMD'},
+            open=True
+        )
+        return session_pool
+    else:
+        logger.debug("Creating single connection")
+        connection = psycopg.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD')
+        return connection
 
 
 async def _async_connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
-                             max_connections: int) -> AsyncConnectionPool:
+                                   max_connections: int, use_pool: bool) -> AsyncConnection | AsyncConnectionPool:
     """
     Create Warehouse Connection
 
@@ -58,14 +67,20 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
     conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
     conninfo = make_conninfo(conn_string)
 
-    session_pool = AsyncConnectionPool(
-        conninfo=conninfo,
-        min_size=min_connections,
-        max_size=max_connections,
-        kwargs={"options": "-c datestyle=ISO,YMD"},
-        open=False
-    )
-    return session_pool
+    if use_pool:
+        logger.debug(f"Creating async connection pool with min size {min_connections} and max size {max_connections}")
+        session_pool = AsyncConnectionPool(
+            conninfo=conninfo,
+            min_size=min_connections,
+            max_size=max_connections,
+            kwargs={"options": "-c datestyle=ISO,YMD"},
+            open=False
+        )
+        return session_pool
+    else:
+        logger.debug("Creating single async connection")
+        connection = await AsyncConnection.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD')
+        return connection
 
 
 """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
@@ -78,14 +93,16 @@ class PostgresConnection(object):
     :return: None
     """
 
-    def __init__(self, min_connections: int = 2, max_connections: int = 5):
+    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
         self._port: Optional[int] = None
         self._database: Optional[str] = None
+        self._connection: Optional[Connection] = None
         self._session_pool: Optional[ConnectionPool] = None
 
+        self.use_pool = use_pool
         self.min_connections = min_connections
         self.max_connections = max_connections
 
@@ -101,8 +118,30 @@ class PostgresConnection(object):
         :return: None
         """
 
-        self._session_pool = _connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                               self._database, self.min_connections, self.max_connections)
+
+        self.connection = _connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                             self._database, self.min_connections, self.max_connections, self.use_pool)
+
+        if self.use_pool:
+            self._session_pool = self.connection
+            self._session_pool.open()
+        else:
+            self._connection = self.connection
+
+    def _get_connection(self) -> _GeneratorContextManager[Any] | Connection:
+        """
+        Get the connection object
+
+        :return: connection
+        """
+
+        if self.use_pool:
+            connection = self._session_pool.connection()
+            return connection
+        else:
+            if self._connection is None or self._connection.closed:
+                self._connect()
+            return self._connection
 
     def set_user(self, credentials_dict: dict) -> None:
         """
@@ -127,7 +166,12 @@ class PostgresConnection(object):
         :return: None
         """
 
-        self._session_pool.close()
+        if self.use_pool:
+            self._session_pool.close()
+        else:
+            if self._connection is not None and not self._connection.closed:
+                self._connection.close()
+            self._connection = None
 
     @retry
     def execute(self, query: SQL | str) -> None:
@@ -138,7 +182,8 @@ class PostgresConnection(object):
         :return: None
         """
 
-        with self._session_pool.connection() as connection:
+        connection = self._get_connection()
+        with connection:
             connection.execute(query)
 
     @retry
@@ -151,11 +196,12 @@ class PostgresConnection(object):
         :return: None
         """
 
-        with self._session_pool.connection() as connection:
+        connection = self._get_connection()
+        with connection:
             connection.execute(query, packed_values)
 
     @retry
-    def execute_multiple(self, queries: list[list[SQL | str, dict]]) -> None:
+    def execute_multiple(self, queries: list[tuple[SQL | str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -163,7 +209,8 @@ class PostgresConnection(object):
         :return: None
         """
 
-        with self._session_pool.connection() as connection:
+        connection = self._get_connection()
+        with connection:
             for item in queries:
                 query = item[0]
                 packed_values = item[1]
@@ -182,7 +229,8 @@ class PostgresConnection(object):
         :return: None
         """
 
-        with self._session_pool.connection() as connection:
+        connection = self._get_connection()
+        with connection:
             cursor = connection.cursor()
             cursor.executemany(query, dictionary)
 
@@ -196,7 +244,8 @@ class PostgresConnection(object):
         :return: rows
         """
 
-        with self._session_pool.connection() as connection:
+        connection = self._get_connection()
+        with connection:
             cursor = connection.cursor()
             if packed_data:
                 cursor.execute(query, packed_data)
@@ -255,7 +304,7 @@ class PostgresConnection(object):
                 if record[key] == '':
                     record[key] = None
 
-        query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, params)
+        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
         self.execute_many(query, main_dict)
 
     @retry
@@ -267,7 +316,7 @@ class PostgresConnection(object):
         :return: None
         """
 
-        truncateQuery = """TRUNCATE TABLE {}""".format(tableName)
+        truncateQuery = f"TRUNCATE TABLE {tableName}"
         self.execute(truncateQuery)
 
     @retry
@@ -279,7 +328,7 @@ class PostgresConnection(object):
         :return: None
         """
 
-        deleteQuery = """DELETE FROM {}""".format(tableName)
+        deleteQuery = f"DELETE FROM {tableName}"
         self.execute(deleteQuery)
 
     def __del__(self) -> None:
@@ -289,7 +338,12 @@ class PostgresConnection(object):
         :return: None
         """
 
-        self._session_pool.close()
+        if self._session_pool is not None:
+            self._session_pool.close()
+        else:
+            if self._connection is not None and not self._connection.closed:
+                self._connection.close()
+            self._connection = None
 
 
 class AsyncPostgresConnection(object):
@@ -299,14 +353,16 @@ class AsyncPostgresConnection(object):
     :return: None
     """
 
-    def __init__(self, min_connections: int = 2, max_connections: int = 5):
+    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
         self._port: Optional[int] = None
         self._database: Optional[str] = None
+        self._connection: Optional[AsyncConnection] = None
         self._session_pool: Optional[AsyncConnectionPool] = None
 
+        self.use_pool = use_pool
         self.min_connections = min_connections
         self.max_connections = max_connections
 
@@ -322,9 +378,30 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        self._session_pool = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                                            self._database, self.min_connections, self.max_connections)
-        await self._session_pool.open()
+        connection = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                    self._database, self.min_connections, self.max_connections,
+                                                    self.use_pool)
+        if self.use_pool:
+            self._session_pool = connection
+            await self._session_pool.open()
+        else:
+            self._connection = connection
+
+    async def _get_connection(self) -> AsyncConnection:
+        """
+        Get the connection object
+
+        :return: connection
+        """
+
+        if self.use_pool:
+            connection = await self._session_pool.getconn()
+            return connection
+        else:
+            if self._connection is None or self._connection.closed:
+                await self._connect()
+            return self._connection
+
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
@@ -349,7 +426,12 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        await self._session_pool.close()
+        if self.use_pool:
+            await self._session_pool.close()
+        else:
+            if self._connection is not None and not self._connection.closed:
+                await self._connection.close()
+            self._connection = None
 
     @async_retry
     async def execute(self, query: SQL | str) -> None:
@@ -360,8 +442,12 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        async with self._session_pool.connection() as connection:
+        connection = await self._get_connection()
+        async with connection:
             await connection.execute(query)
+
+        if self.use_pool:
+            await self._session_pool.putconn(connection)
 
     @async_retry
     async def safe_execute(self, query: SQL | str, packed_values: dict) -> None:
@@ -373,11 +459,15 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        async with self._session_pool.connection() as connection:
+        connection = await self._get_connection()
+        async with connection:
             await connection.execute(query, packed_values)
 
+        if self.use_pool:
+            await self._session_pool.putconn(connection)
+
     @async_retry
-    async def execute_multiple(self, queries: list[list[SQL | str, dict]]) -> None:
+    async def execute_multiple(self, queries: list[tuple[SQL | str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -385,7 +475,8 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        async with self._session_pool.connection() as connection:
+        connection = await self._get_connection()
+        async with connection:
             for item in queries:
                 query = item[0]
                 packed_values = item[1]
@@ -393,6 +484,9 @@ class AsyncPostgresConnection(object):
                     await connection.execute(query, packed_values)
                 else:
                     await connection.execute(query)
+
+        if self.use_pool:
+            await self._session_pool.putconn(connection)
 
     @async_retry
     async def execute_many(self, query: SQL | str, dictionary: list[dict]) -> None:
@@ -404,9 +498,13 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        async with self._session_pool.connection() as connection:
+        connection = await self._get_connection()
+        async with connection:
             cursor = connection.cursor()
             await cursor.executemany(query, dictionary)
+
+        if self.use_pool:
+            await self._session_pool.putconn(connection)
 
     @async_retry
     async def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
@@ -418,13 +516,17 @@ class AsyncPostgresConnection(object):
         :return: rows
         """
 
-        async with self._session_pool.connection() as connection:
+        connection = await self._get_connection()
+        async with connection:
             cursor = connection.cursor()
             if packed_data:
                 await cursor.execute(query, packed_data)
             else:
                 await cursor.execute(query)
             rows = await cursor.fetchall()
+
+        if self.use_pool:
+            await self._session_pool.putconn(connection)
         return rows
 
     @async_retry
@@ -448,7 +550,7 @@ class AsyncPostgresConnection(object):
             params = param_list[0]
 
         main_dict = df.to_dict('records')
-        query = """DELETE FROM {} WHERE {}""".format(outputTableName, params)
+        query = f"DELETE FROM {outputTableName} WHERE {params}"
         await self.execute_many(query, main_dict)
 
     @async_retry
@@ -477,7 +579,7 @@ class AsyncPostgresConnection(object):
                 if record[key] == '':
                     record[key] = None
 
-        query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, params)
+        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
         await self.execute_many(query, main_dict)
 
     @async_retry
@@ -489,7 +591,7 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        truncateQuery = """TRUNCATE TABLE {}""".format(tableName)
+        truncateQuery = f"TRUNCATE TABLE {tableName}"
         await self.execute(truncateQuery)
 
     @async_retry
@@ -501,5 +603,5 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        deleteQuery = """DELETE FROM {}""".format(tableName)
+        deleteQuery = f"DELETE FROM {tableName}"
         await self.execute(deleteQuery)

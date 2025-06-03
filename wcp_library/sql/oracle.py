@@ -4,7 +4,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import oracledb
-from oracledb import ConnectionPool, AsyncConnectionPool
+from oracledb import ConnectionPool, AsyncConnectionPool, Connection, AsyncConnection
 
 from wcp_library.sql import retry, async_retry
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
-                       max_connections: int) -> ConnectionPool:
+                       max_connections: int, use_pool: bool) -> ConnectionPool | Connection:
     """
     Create Warehouse Connection
 
@@ -23,23 +23,34 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
     :param database: database
     :param min_connections:
     :param max_connections:
-    :return: session_pool
+    :param use_pool: use connection pool
+    :return: session_pool | connection
     """
 
-    dsn = oracledb.makedsn(hostname, port, sid=database)
-    session_pool = oracledb.create_pool(
-        user=username,
-        password=password,
-        dsn=dsn,
-        min=min_connections,
-        max=max_connections,
-        increment=1,
-    )
-    return session_pool
+    if use_pool:
+        logger.debug(f"Creating connection pool with min size {min_connections} and max size {max_connections}")
+        dsn = oracledb.makedsn(hostname, port, sid=database)
+        session_pool = oracledb.create_pool(
+            user=username,
+            password=password,
+            dsn=dsn,
+            min=min_connections,
+            max=max_connections,
+            increment=1,
+        )
+        return session_pool
+    else:
+        logger.debug("Creating single connection")
+        connection = oracledb.connect(
+            user=username,
+            password=password,
+            dsn=oracledb.makedsn(hostname, port, sid=database)
+        )
+        return connection
 
 
 async def _async_connect_warehouse(username: str, password: str, hostname: str, port: int, database: str,
-                                   min_connections: int, max_connections: int) -> AsyncConnectionPool:
+                                   min_connections: int, max_connections: int, use_pool: bool) -> AsyncConnectionPool | AsyncConnection:
     """
     Create Warehouse Connection
 
@@ -50,19 +61,30 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
     :param database: database
     :param min_connections:
     :param max_connections:
-    :return: session_pool
+    :param use_pool: use connection pool
+    :return: session_pool | connection
     """
 
-    dsn = oracledb.makedsn(hostname, port, sid=database)
-    session_pool = oracledb.create_pool_async(
-        user=username,
-        password=password,
-        dsn=dsn,
-        min=min_connections,
-        max=max_connections,
-        increment=1
-    )
-    return session_pool
+    if use_pool:
+        logger.debug(f"Creating async connection pool with min size {min_connections} and max size {max_connections}")
+        dsn = oracledb.makedsn(hostname, port, sid=database)
+        session_pool = oracledb.create_pool_async(
+            user=username,
+            password=password,
+            dsn=dsn,
+            min=min_connections,
+            max=max_connections,
+            increment=1
+        )
+        return session_pool
+    else:
+        logger.debug("Creating single async connection")
+        connection = await oracledb.connect_async(
+            user=username,
+            password=password,
+            dsn=oracledb.makedsn(hostname, port, sid=database)
+        )
+        return connection
 
 
 """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
@@ -75,15 +97,17 @@ class OracleConnection(object):
     :return: None
     """
 
-    def __init__(self, min_connections: int = 2, max_connections: int = 5):
+    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
         self._username: Optional[str] = None
         self._password: Optional[str] = None
         self._hostname: Optional[str] = None
         self._port: Optional[int] = None
         self._database: Optional[str] = None
         self._sid: Optional[str] = None
+        self._connection: Optional[Connection] = None
         self._session_pool: Optional[ConnectionPool] = None
 
+        self.use_pool = use_pool
         self.min_connections = min_connections
         self.max_connections = max_connections
 
@@ -101,8 +125,27 @@ class OracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = _connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                                sid_or_service, self.min_connections, self.max_connections)
+        connection = _connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                        sid_or_service, self.min_connections, self.max_connections, self.use_pool)
+
+        if self.use_pool:
+            self._session_pool = connection
+        else:
+            self._connection = connection
+
+    def _get_connection(self) -> Connection:
+        """
+        Get the connection, either from the pool or create a new one
+
+        :return: Connection
+        """
+
+        if self.use_pool:
+            return self._session_pool.acquire()
+        else:
+            if not self._connection or not self._connection.is_healthy():
+                self._connect()
+            return self._connection
 
     def set_user(self, credentials_dict: dict) -> None:
         """
@@ -131,7 +174,12 @@ class OracleConnection(object):
         :return: None
         """
 
-        self._session_pool.close()
+        if self.use_pool:
+            self._session_pool.close()
+        else:
+            if self._connection and self._connection.is_healthy():
+                self._connection.close()
+            self._connection = None
 
     @retry
     def execute(self, query: str) -> None:
@@ -142,11 +190,11 @@ class OracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        cursor.execute(query)
-        connection.commit()
-        self._session_pool.release(connection)
+        connection = self._get_connection()
+        with connection:
+            cursor = connection.cursor()
+            cursor.execute(query)
+            connection.commit()
 
     @retry
     def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -158,14 +206,14 @@ class OracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        cursor.execute(query, packed_values)
-        connection.commit()
-        self._session_pool.release(connection)
+        connection = self._get_connection()
+        with connection:
+            cursor = connection.cursor()
+            cursor.execute(query, packed_values)
+            connection.commit()
 
     @retry
-    def execute_multiple(self, queries: list[list[str, dict]]) -> None:
+    def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -173,17 +221,17 @@ class OracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        for item in queries:
-            query = item[0]
-            packed_values = item[1]
-            if packed_values:
-                cursor.execute(query, packed_values)
-            else:
-                cursor.execute(query)
-        connection.commit()
-        self._session_pool.release(connection)
+        connection = self._get_connection()
+        with connection:
+            cursor = connection.cursor()
+            for item in queries:
+                query = item[0]
+                packed_values = item[1]
+                if packed_values:
+                    cursor.execute(query, packed_values)
+                else:
+                    cursor.execute(query)
+            connection.commit()
 
     @retry
     def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -195,11 +243,11 @@ class OracleConnection(object):
         :return: None
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        cursor.executemany(query, dictionary)
-        connection.commit()
-        self._session_pool.release(connection)
+        connection = self._get_connection()
+        with connection:
+            cursor = connection.cursor()
+            cursor.executemany(query, dictionary)
+            connection.commit()
 
     @retry
     def fetch_data(self, query: str, packed_data=None) -> list:
@@ -211,14 +259,14 @@ class OracleConnection(object):
         :return: rows
         """
 
-        connection = self._session_pool.acquire()
-        cursor = connection.cursor()
-        if packed_data:
-            cursor.execute(query, packed_data)
-        else:
-            cursor.execute(query)
-        rows = cursor.fetchall()
-        self._session_pool.release(connection)
+        connection = self._get_connection()
+        with connection:
+            cursor = connection.cursor()
+            if packed_data:
+                cursor.execute(query, packed_data)
+            else:
+                cursor.execute(query)
+            rows = cursor.fetchall()
         return rows
 
     @retry
@@ -267,7 +315,7 @@ class OracleConnection(object):
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
 
-        query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, bind)
+        query = f"""INSERT INTO {outputTableName} ({col}) VALUES ({bind})"""
         self.execute_many(query, main_dict)
 
     @retry
@@ -279,7 +327,7 @@ class OracleConnection(object):
         :return: None
         """
 
-        truncateQuery = """TRUNCATE TABLE {}""".format(tableName)
+        truncateQuery = f"""TRUNCATE TABLE {tableName}"""
         self.execute(truncateQuery)
 
     @retry
@@ -291,7 +339,7 @@ class OracleConnection(object):
         :return: None
         """
 
-        deleteQuery = """DELETE FROM {}""".format(tableName)
+        deleteQuery = f"""DELETE FROM {tableName}"""
         self.execute(deleteQuery)
 
     def __del__(self) -> None:
@@ -301,7 +349,12 @@ class OracleConnection(object):
         :return: None
         """
 
-        self._session_pool.close()
+        if self.use_pool:
+            self._session_pool.close()
+        else:
+            if self._connection and self._connection.is_healthy():
+                self._connection.close()
+            self._connection = None
 
 
 class AsyncOracleConnection(object):
@@ -311,7 +364,7 @@ class AsyncOracleConnection(object):
     :return: None
     """
 
-    def __init__(self, min_connections: int = 2, max_connections: int = 5):
+    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
         self._db_service: str = "Oracle"
         self._username: Optional[str] = None
         self._password: Optional[str] = None
@@ -319,8 +372,10 @@ class AsyncOracleConnection(object):
         self._port: Optional[int] = None
         self._database: Optional[str] = None
         self._sid: Optional[str] = None
+        self._connection: Optional[AsyncConnection] = None
         self._session_pool: Optional[AsyncConnectionPool] = None
 
+        self.use_pool = use_pool
         self.min_connections = min_connections
         self.max_connections = max_connections
 
@@ -338,8 +393,28 @@ class AsyncOracleConnection(object):
 
         sid_or_service = self._database if self._database else self._sid
 
-        self._session_pool = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                                            sid_or_service, self.min_connections, self.max_connections)
+        connection = await _async_connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                                    sid_or_service, self.min_connections, self.max_connections,
+                                                    self.use_pool)
+
+        if self.use_pool:
+            self._session_pool = connection
+        else:
+            self._connection = connection
+
+    async def _get_connection(self) -> AsyncConnection:
+        """
+        Get the connection, either from the pool or create a new one
+
+        :return: AsyncConnection
+        """
+
+        if self.use_pool:
+            return await self._session_pool.acquire()
+        else:
+            if not self._connection or not self._connection.is_healthy():
+                await self._connect()
+            return self._connection
 
     async def set_user(self, credentials_dict: dict) -> None:
         """
@@ -368,7 +443,12 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        await self._session_pool.close()
+        if self.use_pool:
+            await self._session_pool.close()
+        else:
+            if self._connection and self._connection.is_healthy():
+                await self._connection.close()
+            self._connection = None
 
     @async_retry
     async def execute(self, query: str) -> None:
@@ -379,7 +459,8 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        async with self._session_pool.acquire() as connection:
+        connection = await self._get_connection()
+        async with connection:
             with connection.cursor() as cursor:
                 await cursor.execute(query)
                 await connection.commit()
@@ -394,13 +475,14 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        async with self._session_pool.acquire() as connection:
+        connection = await self._get_connection()
+        async with connection:
             with connection.cursor() as cursor:
                 await cursor.execute(query, packed_values)
                 await connection.commit()
 
     @async_retry
-    async def execute_multiple(self, queries: list[list[str, dict]]) -> None:
+    async def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -408,7 +490,8 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        async with self._session_pool.acquire() as connection:
+        connection = await self._get_connection()
+        async with connection:
             with connection.cursor() as cursor:
                 for item in queries:
                     query = item[0]
@@ -429,7 +512,8 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        async with self._session_pool.acquire() as connection:
+        connection = await self._get_connection()
+        async with connection:
             with connection.cursor() as cursor:
                 await cursor.executemany(query, dictionary)
                 await connection.commit()
@@ -444,7 +528,8 @@ class AsyncOracleConnection(object):
         :return: rows
         """
 
-        async with self._session_pool.acquire() as connection:
+        connection = await self._get_connection()
+        async with connection:
             with connection.cursor() as cursor:
                 if packed_data:
                     await cursor.execute(query, packed_data)
@@ -499,7 +584,7 @@ class AsyncOracleConnection(object):
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
 
-        query = """INSERT INTO {} ({}) VALUES ({})""".format(outputTableName, col, bind)
+        query = f"""INSERT INTO {outputTableName} ({col}) VALUES ({bind})"""
         await self.execute_many(query, main_dict)
 
     @async_retry
@@ -511,7 +596,7 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        truncateQuery = """TRUNCATE TABLE {}""".format(tableName)
+        truncateQuery = f"""TRUNCATE TABLE {tableName}"""
         await self.execute(truncateQuery)
 
     @async_retry
@@ -523,5 +608,5 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        deleteQuery = """DELETE FROM {}""".format(tableName)
+        deleteQuery = f"""DELETE FROM {tableName}"""
         await self.execute(deleteQuery)
