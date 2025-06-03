@@ -6,3 +6,4 @@
 *.spec
 *.log
 /Test.py
+/Testing.py
