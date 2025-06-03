@@ -1,4 +1,3 @@
-import ftplib
 import logging
 import re
 from pathlib import Path
@@ -16,10 +15,7 @@ class FTP:
         self._username: Optional[str] = None if not password_vault_dict else password_vault_dict['UserName']
         self._password: Optional[str] = None if not password_vault_dict else password_vault_dict['Password']
 
-        self._ftp_factory: ftputil.session.session_factory = ftputil.session.session_factory(base_class=ftplib.FTP_TLS,
-                                                                                             port=self.port,
-                                                                                             encrypt_data_channel=True,
-                                                                                             encoding="UTF-8")
+        self._ftp_factory: ftputil.session.session_factory = ftputil.session.session_factory(port=self.port)
         self.ftp_connection: Optional[ftputil.FTPHost] = None if not (self._username and self._password) \
             else ftputil.FTPHost(self.host, self._username, self._password, session_factory=self._ftp_factory)
 
