@@ -1,6 +1,5 @@
 import logging
-from contextlib import _GeneratorContextManager
-from typing import Optional, Any
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -128,7 +127,7 @@ class PostgresConnection(object):
         else:
             self._connection = self.connection
 
-    def _get_connection(self) -> _GeneratorContextManager[Any] | Connection:
+    def _get_connection(self) -> Connection:
         """
         Get the connection object
 
@@ -136,7 +135,7 @@ class PostgresConnection(object):
         """
 
         if self.use_pool:
-            connection = self._session_pool.connection()
+            connection = self._session_pool.getconn()
             return connection
         else:
             if self._connection is None or self._connection.closed:
@@ -186,6 +185,9 @@ class PostgresConnection(object):
         with connection:
             connection.execute(query)
 
+        if self.use_pool:
+            self._session_pool.putconn(connection)
+
     @retry
     def safe_execute(self, query: SQL | str, packed_values: dict) -> None:
         """
@@ -199,6 +201,9 @@ class PostgresConnection(object):
         connection = self._get_connection()
         with connection:
             connection.execute(query, packed_values)
+
+        if self.use_pool:
+            self._session_pool.putconn(connection)
 
     @retry
     def execute_multiple(self, queries: list[tuple[SQL | str, dict]]) -> None:
@@ -219,6 +224,9 @@ class PostgresConnection(object):
                 else:
                     connection.execute(query)
 
+        if self.use_pool:
+            self._session_pool.putconn(connection)
+
     @retry
     def execute_many(self, query: SQL | str, dictionary: list[dict]) -> None:
         """
@@ -233,6 +241,9 @@ class PostgresConnection(object):
         with connection:
             cursor = connection.cursor()
             cursor.executemany(query, dictionary)
+
+        if self.use_pool:
+            self._session_pool.putconn(connection)
 
     @retry
     def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
@@ -252,6 +263,9 @@ class PostgresConnection(object):
             else:
                 cursor.execute(query)
             rows = cursor.fetchall()
+
+        if self.use_pool:
+            self._session_pool.putconn(connection)
         return rows
 
     @retry
