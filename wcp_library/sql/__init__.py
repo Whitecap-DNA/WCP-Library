@@ -9,20 +9,20 @@ import psycopg
 logger = logging.getLogger(__name__)
 
 
-def retry(f: callable) -> callable:
+def retry(func: callable) -> callable:
     """
     Decorator to retry a function
 
-    :param f: function
+    :param func: function
     :return: function
     """
 
-    @wraps(f)
+    @wraps(func)
     def wrapper(self, *args, **kwargs):
         self._retry_count = 0
         while True:
             try:
-                return f(self, *args, **kwargs)
+                return func(self, *args, **kwargs)
             except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 if isinstance(e, (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError, psycopg.DatabaseError)):
                     error_obj, = e.args
@@ -38,20 +38,20 @@ def retry(f: callable) -> callable:
     return wrapper
 
 
-def async_retry(f: callable) -> callable:
+def async_retry(func: callable) -> callable:
     """
     Decorator to retry a function
 
-    :param f: function
+    :param func: function
     :return: function
     """
 
-    @wraps(f)
+    @wraps(func)
     async def wrapper(self, *args, **kwargs):
         self._retry_count = 0
         while True:
             try:
-                return await f(self, *args, **kwargs)
+                return await func(self, *args, **kwargs)
             except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 if isinstance(e, (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError, psycopg.DatabaseError)):
                     error_obj, = e.args
