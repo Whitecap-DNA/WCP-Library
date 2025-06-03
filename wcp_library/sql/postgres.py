@@ -182,8 +182,8 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            connection.execute(query)
+        connection.execute(query)
+        connection.commit()
 
         if self.use_pool:
             self._session_pool.putconn(connection)
@@ -199,8 +199,8 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            connection.execute(query, packed_values)
+        connection.execute(query, packed_values)
+        connection.commit()
 
         if self.use_pool:
             self._session_pool.putconn(connection)
@@ -215,14 +215,14 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            for item in queries:
-                query = item[0]
-                packed_values = item[1]
-                if packed_values:
-                    connection.execute(query, packed_values)
-                else:
-                    connection.execute(query)
+        for item in queries:
+            query = item[0]
+            packed_values = item[1]
+            if packed_values:
+                connection.execute(query, packed_values)
+            else:
+                connection.execute(query)
+        connection.commit()
 
         if self.use_pool:
             self._session_pool.putconn(connection)
@@ -238,9 +238,9 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            cursor.executemany(query, dictionary)
+        cursor = connection.cursor()
+        cursor.executemany(query, dictionary)
+        connection.commit()
 
         if self.use_pool:
             self._session_pool.putconn(connection)
@@ -256,13 +256,13 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            if packed_data:
-                cursor.execute(query, packed_data)
-            else:
-                cursor.execute(query)
-            rows = cursor.fetchall()
+        cursor = connection.cursor()
+        if packed_data:
+            cursor.execute(query, packed_data)
+        else:
+            cursor.execute(query)
+        rows = cursor.fetchall()
+        connection.commit()
 
         if self.use_pool:
             self._session_pool.putconn(connection)
@@ -457,8 +457,8 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            await connection.execute(query)
+        await connection.execute(query)
+        await connection.commit()
 
         if self.use_pool:
             await self._session_pool.putconn(connection)
@@ -474,8 +474,8 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            await connection.execute(query, packed_values)
+        await connection.execute(query, packed_values)
+        await connection.commit()
 
         if self.use_pool:
             await self._session_pool.putconn(connection)
@@ -490,14 +490,14 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            for item in queries:
-                query = item[0]
-                packed_values = item[1]
-                if packed_values:
-                    await connection.execute(query, packed_values)
-                else:
-                    await connection.execute(query)
+        for item in queries:
+            query = item[0]
+            packed_values = item[1]
+            if packed_values:
+                await connection.execute(query, packed_values)
+            else:
+                await connection.execute(query)
+        await connection.commit()
 
         if self.use_pool:
             await self._session_pool.putconn(connection)
@@ -513,9 +513,9 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            cursor = connection.cursor()
-            await cursor.executemany(query, dictionary)
+        cursor = connection.cursor()
+        await cursor.executemany(query, dictionary)
+        await connection.commit()
 
         if self.use_pool:
             await self._session_pool.putconn(connection)
@@ -531,13 +531,13 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            cursor = connection.cursor()
-            if packed_data:
-                await cursor.execute(query, packed_data)
-            else:
-                await cursor.execute(query)
-            rows = await cursor.fetchall()
+        cursor = connection.cursor()
+        if packed_data:
+            await cursor.execute(query, packed_data)
+        else:
+            await cursor.execute(query)
+        rows = await cursor.fetchall()
+        await connection.commit()
 
         if self.use_pool:
             await self._session_pool.putconn(connection)

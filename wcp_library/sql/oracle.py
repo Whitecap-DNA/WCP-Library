@@ -191,10 +191,12 @@ class OracleConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            cursor.execute(query)
-            connection.commit()
+        cursor = connection.cursor()
+        cursor.execute(query)
+        connection.commit()
+
+        if self.use_pool:
+            self._session_pool.release(self._connection)
 
     @retry
     def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -207,10 +209,12 @@ class OracleConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            cursor.execute(query, packed_values)
-            connection.commit()
+        cursor = connection.cursor()
+        cursor.execute(query, packed_values)
+        connection.commit()
+
+        if self.use_pool:
+            self._session_pool.release(self._connection)
 
     @retry
     def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
@@ -222,16 +226,18 @@ class OracleConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            for item in queries:
-                query = item[0]
-                packed_values = item[1]
-                if packed_values:
-                    cursor.execute(query, packed_values)
-                else:
-                    cursor.execute(query)
-            connection.commit()
+        cursor = connection.cursor()
+        for item in queries:
+            query = item[0]
+            packed_values = item[1]
+            if packed_values:
+                cursor.execute(query, packed_values)
+            else:
+                cursor.execute(query)
+        connection.commit()
+
+        if self.use_pool:
+            self._session_pool.release(self._connection)
 
     @retry
     def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -244,10 +250,12 @@ class OracleConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            cursor.executemany(query, dictionary)
-            connection.commit()
+        cursor = connection.cursor()
+        cursor.executemany(query, dictionary)
+        connection.commit()
+
+        if self.use_pool:
+            self._session_pool.release(self._connection)
 
     @retry
     def fetch_data(self, query: str, packed_data=None) -> list:
@@ -260,13 +268,16 @@ class OracleConnection(object):
         """
 
         connection = self._get_connection()
-        with connection:
-            cursor = connection.cursor()
-            if packed_data:
-                cursor.execute(query, packed_data)
-            else:
-                cursor.execute(query)
-            rows = cursor.fetchall()
+        cursor = connection.cursor()
+        if packed_data:
+            cursor.execute(query, packed_data)
+        else:
+            cursor.execute(query)
+        rows = cursor.fetchall()
+        connection.commit()
+
+        if self.use_pool:
+            self._session_pool.release(self._connection)
         return rows
 
     @retry
@@ -290,7 +301,7 @@ class OracleConnection(object):
             params = param_list[0]
 
         main_dict = df.to_dict('records')
-        query = f"""DELETE FROM {outputTableName} WHERE {params}"""
+        query = f"DELETE FROM {outputTableName} WHERE {params}"
         self.execute_many(query, main_dict)
 
     @retry
@@ -315,7 +326,7 @@ class OracleConnection(object):
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
 
-        query = f"""INSERT INTO {outputTableName} ({col}) VALUES ({bind})"""
+        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({bind})"
         self.execute_many(query, main_dict)
 
     @retry
@@ -327,7 +338,7 @@ class OracleConnection(object):
         :return: None
         """
 
-        truncateQuery = f"""TRUNCATE TABLE {tableName}"""
+        truncateQuery = f"TRUNCATE TABLE {tableName}"
         self.execute(truncateQuery)
 
     @retry
@@ -339,7 +350,7 @@ class OracleConnection(object):
         :return: None
         """
 
-        deleteQuery = f"""DELETE FROM {tableName}"""
+        deleteQuery = f"DELETE FROM {tableName}"
         self.execute(deleteQuery)
 
     def __del__(self) -> None:
@@ -460,10 +471,12 @@ class AsyncOracleConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            with connection.cursor() as cursor:
-                await cursor.execute(query)
-                await connection.commit()
+        with connection.cursor() as cursor:
+            await cursor.execute(query)
+            await connection.commit()
+
+        if self.use_pool:
+            await self._session_pool.release(self._connection)
 
     @async_retry
     async def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -476,10 +489,12 @@ class AsyncOracleConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            with connection.cursor() as cursor:
-                await cursor.execute(query, packed_values)
-                await connection.commit()
+        with connection.cursor() as cursor:
+            await cursor.execute(query, packed_values)
+            await connection.commit()
+
+        if self.use_pool:
+            await self._session_pool.release(self._connection)
 
     @async_retry
     async def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
@@ -491,16 +506,18 @@ class AsyncOracleConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            with connection.cursor() as cursor:
-                for item in queries:
-                    query = item[0]
-                    packed_values = item[1]
-                    if packed_values:
-                        await cursor.execute(query, packed_values)
-                    else:
-                        await cursor.execute(query)
-                await connection.commit()
+        with connection.cursor() as cursor:
+            for item in queries:
+                query = item[0]
+                packed_values = item[1]
+                if packed_values:
+                    await cursor.execute(query, packed_values)
+                else:
+                    await cursor.execute(query)
+            await connection.commit()
+
+        if self.use_pool:
+            await self._session_pool.release(self._connection)
 
     @async_retry
     async def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -513,10 +530,12 @@ class AsyncOracleConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            with connection.cursor() as cursor:
-                await cursor.executemany(query, dictionary)
-                await connection.commit()
+        with connection.cursor() as cursor:
+            await cursor.executemany(query, dictionary)
+            await connection.commit()
+
+        if self.use_pool:
+            await self._session_pool.release(self._connection)
 
     @async_retry
     async def fetch_data(self, query: str, packed_data=None) -> list:
@@ -529,13 +548,16 @@ class AsyncOracleConnection(object):
         """
 
         connection = await self._get_connection()
-        async with connection:
-            with connection.cursor() as cursor:
-                if packed_data:
-                    await cursor.execute(query, packed_data)
-                else:
-                    await cursor.execute(query)
-                rows = await cursor.fetchall()
+        with connection.cursor() as cursor:
+            if packed_data:
+                await cursor.execute(query, packed_data)
+            else:
+                await cursor.execute(query)
+            rows = await cursor.fetchall()
+        await connection.commit()
+
+        if self.use_pool:
+            await self._session_pool.release(self._connection)
         return rows
 
     @async_retry
@@ -559,7 +581,7 @@ class AsyncOracleConnection(object):
             params = param_list[0]
 
         main_dict = df.to_dict('records')
-        query = f"""DELETE FROM {outputTableName} WHERE {params}"""
+        query = f"DELETE FROM {outputTableName} WHERE {params}"
         await self.execute_many(query, main_dict)
 
     @async_retry
@@ -584,7 +606,7 @@ class AsyncOracleConnection(object):
             dfObj = dfObj.replace({np.nan: None})
         main_dict = dfObj.to_dict('records')
 
-        query = f"""INSERT INTO {outputTableName} ({col}) VALUES ({bind})"""
+        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({bind})"
         await self.execute_many(query, main_dict)
 
     @async_retry
@@ -596,7 +618,7 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        truncateQuery = f"""TRUNCATE TABLE {tableName}"""
+        truncateQuery = f"TRUNCATE TABLE {tableName}"
         await self.execute(truncateQuery)
 
     @async_retry
@@ -608,5 +630,5 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        deleteQuery = f"""DELETE FROM {tableName}"""
+        deleteQuery = f"DELETE FROM {tableName}"
         await self.execute(deleteQuery)
