@@ -120,12 +120,12 @@ class Interactions:
             EC: The expected condition object.
         """
         match expected_condition:
+            case "present":
+                expected_condition = EC.presence_of_element_located
             case "visible":
                 expected_condition = EC.visibility_of_element_located
             case "invisible":
                 expected_condition = EC.invisibility_of_element_located
-            case "clickable":
-                expected_condition = EC.element_to_be_clickable
             case "selected":
                 expected_condition = EC.element_located_to_be_selected
             case "text_present":
@@ -133,7 +133,7 @@ class Interactions:
             case "frame_available":
                 expected_condition = EC.frame_to_be_available_and_switch_to_it
             case _:
-                expected_condition = EC.presence_of_element_located
+                expected_condition = EC.element_to_be_clickable
         return expected_condition
 
     def _get_expect_condition_multiple(self, expected_condition: Optional[str]) -> EC:
@@ -282,22 +282,6 @@ class UIInteractions(Interactions):
             self._take_error_screenshot()
             raise WebDriverException(f"WebDriverException occurred: {exc}") from exc
 
-    def press_button(
-        self,
-        element_value: str,
-        locator: Optional[str] = None,
-        expected_condition: Optional[str] = None,
-    ) -> None:
-        """Click on the WebElement based on the locator and expected condition.
-
-        Args:
-            element_value (str): The element value.
-            locator (Optional[str]): The locator type.
-            expected_condition (Optional[str]): The expected condition type.
-        """
-        element = self.get_element(element_value, locator, expected_condition)
-        element.click()
-
     def get_text(
         self,
         element_value: str,
@@ -354,6 +338,22 @@ class UIInteractions(Interactions):
         return self.get_element(
             element_value, locator, expected_condition
         ).get_attribute("value")
+
+    def press_button(
+        self,
+        element_value: str,
+        locator: Optional[str] = None,
+        expected_condition: Optional[str] = None,
+    ) -> None:
+        """Click on the WebElement based on the locator and expected condition.
+
+        Args:
+            element_value (str): The element value.
+            locator (Optional[str]): The locator type.
+            expected_condition (Optional[str]): The expected condition type.
+        """
+        element = self.get_element(element_value, locator, expected_condition)
+        element.click()
 
     def enter_text(
         self,
@@ -468,15 +468,7 @@ class UIInteractions(Interactions):
 class WEInteractions(Interactions):
     """Class for interacting with web elements directly using WebElement instances."""
 
-    def press_button(self, web_element: WebElement) -> None:
-        """Click on the WebElement directly.
-
-        Args:
-            web_element (WebElement): The WebElement to click.
-        """
-        web_element.click()
-
-    def get_text(self, web_element: WebElement) -> str:
+    def get_text_we(self, web_element: WebElement) -> str:
         """Get the text of the WebElement directly.
 
         Args:
@@ -487,7 +479,7 @@ class WEInteractions(Interactions):
         """
         return web_element.text
 
-    def get_table(self, web_element: WebElement) -> pd.DataFrame:
+    def get_table_we(self, web_element: WebElement) -> pd.DataFrame:
         """Get the data from a table element directly.
 
         Args:
@@ -498,7 +490,7 @@ class WEInteractions(Interactions):
         """
         return pd.read_html(StringIO(web_element.get_attribute("outerHTML")))[0]
 
-    def get_value(self, web_element: WebElement) -> str:
+    def get_value_we(self, web_element: WebElement) -> str:
         """Get the value attribute of the WebElement directly.
 
         Args:
@@ -509,7 +501,15 @@ class WEInteractions(Interactions):
         """
         return web_element.get_attribute("value")
 
-    def enter_text(self, text: str, web_element: WebElement):
+    def press_button_we(self, web_element: WebElement) -> None:
+        """Click on the WebElement directly.
+
+        Args:
+            web_element (WebElement): The WebElement to click.
+        """
+        web_element.click()
+
+    def enter_text_we(self, text: str, web_element: WebElement):
         """Populate the text field with the provided text directly.
 
         Args:
@@ -519,7 +519,7 @@ class WEInteractions(Interactions):
         web_element.clear()
         web_element.send_keys(text)
 
-    def set_checkbox_state(self, state: bool, web_element: WebElement):
+    def set_checkbox_state_we(self, state: bool, web_element: WebElement):
         """Set the state of a checkbox directly.
 
         Args:
@@ -529,7 +529,7 @@ class WEInteractions(Interactions):
         if web_element.is_selected() != state:
             web_element.click()
 
-    def set_select_option(
+    def set_select_option_we(
         self, option: str, web_element: WebElement, select_type: str = None
     ):
         """Select an option from a dropdown directly.
@@ -548,7 +548,7 @@ class WEInteractions(Interactions):
         else:
             select.select_by_value(option)
 
-    def if_web_page_contains(
+    def if_web_page_contains_we(
         self, web_element: WebElement, expected_condition: Optional[str] = None
     ) -> bool:
         """Check if the web page contains an element directly using WebElement
@@ -567,7 +567,7 @@ class WEInteractions(Interactions):
         except WebDriverException:
             return False
 
-    def wait_for_element(
+    def wait_for_element_we(
         self,
         web_element: WebElement,
         expected_condition: Optional[str] = None,
