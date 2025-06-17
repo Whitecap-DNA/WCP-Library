@@ -1,3 +1,8 @@
+"""
+PyTest module to test out all the browser and interactions functions
+"""
+# pylint: disable=redefined-outer-name
+
 from datetime import datetime
 import pytest
 from wcp_library.browser_automation.browser import Browser, Firefox, Edge, Chrome
@@ -6,17 +11,27 @@ URL = "https://scriptng.com/practise-site/selenium-ui-elements/"
 FOLDER_PATH = "C:/Users/benjamin.clabaux/Documents/Testing Folder"
 
 # Define browser classes to test
-BROWSER_CLASSES = [Firefox]
+BROWSER_CLASSES = [Firefox, Edge, Chrome]
 
 # Define option sets to test
 BROWSER_OPTIONS = [
     {
-        "explicit_wait": 5,
+        "explicit_wait": 10,
+        "implicit_wait": 30,
         "download_path": FOLDER_PATH,
     },
     {
-        "explicit_wait": 10,
+        "explicit_wait": 30,
         "args": ["--headless", "--disable-gpu"],
+    },
+    {
+        "page_load_strategy": "eager",
+        "explicit_wait": 5,
+    },
+    {
+        "unhandled_prompt_behavior": "dismiss",
+        "args": ["--start-maximized"],
+        "timeouts": {"implicit": 5000},
     },
 ]
 
@@ -27,6 +42,19 @@ BROWSER_OPTIONS = [
     ]
 )
 def setup_driver(request):
+    """
+    Pytest fixture to initialize and yield a browser driver instance with specified parameters.
+
+    This fixture sets up the browser using the provided browser class and options,
+    navigates to the predefined URL, and yields the driver for use in tests.
+    The driver is automatically closed after the test completes.
+
+    Args:
+        request: A pytest fixture parameter containing a tuple of (browser_class, options).
+
+    Yields:
+        An instance of the initialized browser driver.
+    """
     browser_class, options = request.param
     print(f"Setting up {browser_class.__name__} with options: {options}")
     with Browser(browser_class, options) as driver:
@@ -90,6 +118,12 @@ def test_take_screenshot(setup_driver):
 
 
 def test_if_web_page_contains(setup_driver):
+    """
+    Test to check if the web page contains an element.
+
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
     exists = setup_driver.if_web_page_contains("footer", locator="tag_name")
     print(f"Element exists: {exists}")
 
@@ -108,32 +142,35 @@ def test_if_web_page_contains_we(setup_driver):
     print(f"Element exists: {exists}")
 
 
-# def test_wait_for_element(setup_driver):
-#     """
-#     Test to wait for an element.
+def test_wait_for_element(setup_driver):
+    """
+    Test to wait for an element.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Waiting for element by ID")
-#     driver = setup_driver
-#     el = driver.wait_for_element(
-#         "modal", locator="id", expected_condition="visible", wait_time=10
-#     )
-#     print(f"Returned Element: {el}")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Waiting for element by ID")
+    driver = setup_driver
+    el = driver.wait_for_element(
+        "visibility-status", locator="id", expected_condition="visible", wait_time=15
+    )
+    print(f"Returned Element: {el}")
 
 
-# def test_wait_for_element_we(setup_driver):
-#     """
-#     Test to wait for an element using a web element.
+def test_wait_for_element_we(setup_driver):
+    """
+    Test to wait for an element using a web element.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Waiting for element using web element")
-#     driver = setup_driver
-#     el = driver.wait_for_element_we(element, wait_time=10)
-#     print(f"Returned Element: {el}")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Waiting for element using web element")
+    driver = setup_driver
+    element = driver.get_element(
+        "visibility-status", locator="id", expected_condition="visible", wait_time=15
+    )
+    el = driver.wait_for_element_we(element, wait_time=10)
+    print(f"Returned Element: {el}")
 
 
 ############################################################################################
@@ -435,34 +472,35 @@ def test_get_value_we(setup_driver):
 
 
 # TODO
-# def test_get_table(setup_driver):
-#     """
-#     Test to get table data.
+def test_get_table(setup_driver):
+    """
+    Test to get table data.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Getting table by ID")
-#     driver = setup_driver
-#     driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
-#     df = driver.get_table("customer", locator="id")
-#     print(f"Returned Table DataFrame: {df}")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Getting table by ID")
+    driver = setup_driver
+    driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
+    df = driver.get_table("customer", locator="id")
+    print(f"Returned Table DataFrame: {df}")
+
 
 # TODO
-# def test_get_table_we(setup_driver):
-#     """
-#     Test to get table data using a web element.
+def test_get_table_we(setup_driver):
+    """
+    Test to get table data using a web element.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Getting table using web element")
-#     driver = setup_driver
-#     driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
-#     element = driver.get_element("customer", locator="id")
-#     print(f"Element: {element}")
-#     df = driver.get_table(element)
-#     print(f"Returned Table DataFrame: {df}")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Getting table using web element")
+    driver = setup_driver
+    driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
+    element = driver.get_element("customer", locator="id")
+    print(f"Element: {element}")
+    df = driver.get_table(element)
+    print(f"Returned Table DataFrame: {df}")
 
 
 def test_enter_text(setup_driver):
@@ -527,32 +565,33 @@ def test_set_checkbox_state_we(setup_driver):
 
 
 # TODO
-# def test_set_select_option(setup_driver):
-#     """
-#     Test to set a select option.
+def test_set_select_option(setup_driver):
+    """
+    Test to set a select option.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Setting select option by ID")
-#     driver = setup_driver
-#     driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Setting select option by ID")
+    driver = setup_driver
+    driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
 
-#     driver.set_select_option("opel", "cars", locator="id")
-#     print("Select option set successfully")
+    driver.set_select_option("opel", "cars", locator="id")
+    print("Select option set successfully")
+
 
 # TODO
-# def test_set_select_option_we(setup_driver):
-#     """
-#     Test to set a select option using a web element.
+def test_set_select_option_we(setup_driver):
+    """
+    Test to set a select option using a web element.
 
-#     Args:
-#         setup_driver (WebDriver): The initialized WebDriver instance.
-#     """
-#     print("Setting select option using web element")
-#     driver = setup_driver
-#     driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
+    Args:
+        setup_driver (WebDriver): The initialized WebDriver instance.
+    """
+    print("Setting select option using web element")
+    driver = setup_driver
+    driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
 
-#     element = driver.get_element("cars", locator="id")
-#     driver.set_select_option("ca", element)
-#     print("Select option set successfully")
+    element = driver.get_element("cars", locator="id")
+    driver.set_select_option("ca", element)
+    print("Select option set successfully")

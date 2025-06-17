@@ -36,6 +36,8 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
+EXECUTION_ERROR_SCREENSHOT_FOLDER = "P:/Python/RPA/Execution Error Screenshots"
+
 
 class Interactions:
     """Class for interacting with web elements using Selenium WebDriver.
@@ -104,9 +106,8 @@ class Interactions:
 
     def _take_error_screenshot(self):
         """Take a screenshot of the current page and save it to the P drive."""
-        execution_error_screenshot_folder = "P:/Python/RPA/Execution Error Screenshots"
         self.take_screenshot(
-            f"{execution_error_screenshot_folder}/Failure Screenshot - {datetime.now().strftime('%Y-%m-%d_%H-%M')}.png"
+            f"{EXECUTION_ERROR_SCREENSHOT_FOLDER}/Failure Screenshot - {datetime.now().strftime('%Y-%m-%d_%H-%M')}.png"
         )
 
     def _get_expected_condition(self, expected_condition: Optional[str]) -> EC:
