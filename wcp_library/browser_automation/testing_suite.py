@@ -1,6 +1,7 @@
 """
 PyTest module to test out all the browser and interactions functions
 """
+
 # pylint: disable=redefined-outer-name
 
 from datetime import datetime
@@ -17,7 +18,6 @@ BROWSER_CLASSES = [Firefox, Edge, Chrome]
 BROWSER_OPTIONS = [
     {
         "explicit_wait": 10,
-        "implicit_wait": 30,
         "download_path": FOLDER_PATH,
     },
     {
@@ -31,7 +31,7 @@ BROWSER_OPTIONS = [
     {
         "unhandled_prompt_behavior": "dismiss",
         "args": ["--start-maximized"],
-        "timeouts": {"implicit": 5000},
+        "timeouts": {"implicit": 5000, "pageLoad": 30000},
     },
 ]
 
@@ -481,7 +481,7 @@ def test_get_table(setup_driver):
     """
     print("Getting table by ID")
     driver = setup_driver
-    driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
+    driver.go_to("https://www.w3schools.com/html/html_tables.asp")
     df = driver.get_table("customer", locator="id")
     print(f"Returned Table DataFrame: {df}")
 
@@ -496,7 +496,7 @@ def test_get_table_we(setup_driver):
     """
     print("Getting table using web element")
     driver = setup_driver
-    driver.go_to_url("https://www.w3schools.com/html/html_tables.asp")
+    driver.go_to("https://www.w3schools.com/html/html_tables.asp")
     element = driver.get_element("customer", locator="id")
     print(f"Element: {element}")
     df = driver.get_table(element)
@@ -574,7 +574,7 @@ def test_set_select_option(setup_driver):
     """
     print("Setting select option by ID")
     driver = setup_driver
-    driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
+    driver.go_to("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
 
     driver.set_select_option("opel", "cars", locator="id")
     print("Select option set successfully")
@@ -590,7 +590,7 @@ def test_set_select_option_we(setup_driver):
     """
     print("Setting select option using web element")
     driver = setup_driver
-    driver.go_to_url("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
+    driver.go_to("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_select")
 
     element = driver.get_element("cars", locator="id")
     driver.set_select_option("ca", element)

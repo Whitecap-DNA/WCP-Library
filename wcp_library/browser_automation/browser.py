@@ -20,6 +20,8 @@ Usage:
         browser.go_to("https://example.com")
 """
 
+from docstring_inheritance import GoogleDocstringInheritanceMeta
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -31,7 +33,9 @@ from wcp_library.browser_automation.interactions import (
 )
 
 
-class BaseSelenium(UIInteractions, WEInteractions):
+class BaseSelenium(
+    UIInteractions, WEInteractions, metaclass=GoogleDocstringInheritanceMeta
+):
     """
     Base class for Selenium-based browser automation.
 
@@ -75,8 +79,9 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         raise NotImplementedError("Subclasses must implement this method")
 
-
-    def add_options(self, options: ChromeOptions | FirefoxOptions | EdgeOptions) -> None:
+    def add_options(
+        self, options: ChromeOptions | FirefoxOptions | EdgeOptions
+    ) -> None:
         """
         Add custom options to the Selenium WebDriver.
 
@@ -176,7 +181,6 @@ class Browser:
     Attributes:
         browser_class (type): The class of the browser to be used (e.g., Firefox, Edge, Chrome).
         browser_options (dict): Dictionary containing custom options for the browser.
-        browser_instance (BaseSelenium): Instance of the browser class.
     """
 
     def __init__(self, browser_class: type, browser_options: dict = None):
@@ -196,6 +200,7 @@ class Browser:
             )
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
+
 
 # pylint: disable=line-too-long
 # +--------------------------------------------------------------------------------------------------------------------------------------------------------+
