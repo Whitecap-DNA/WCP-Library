@@ -23,7 +23,7 @@ Example usage:
 import logging
 from datetime import datetime
 from io import StringIO
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pandas as pd
 from selenium.common.exceptions import (
@@ -237,6 +237,7 @@ class UIInteractions(Interactions):
             self._take_error_screenshot()
             raise WebDriverException(f"WebDriverException occurred: {exc}") from exc
 
+
     def get_multiple_elements(
         self,
         element_value: str,
@@ -420,25 +421,25 @@ class UIInteractions(Interactions):
         else:
             select.select_by_value(option)
 
-    def if_web_page_contains(
+    def web_page_contains(
         self,
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
-    ) -> bool:
-        """Check if the web page contains an element based on the locator and expected condition.
+    ) -> Union[WebElement, bool]:
+        """
+        Determine whether a web element is present on the page based on the provided locator and expected condition.
 
         Args:
-            element_value (str): The element value.
+            element_value (str): The value used to identify the element (e.g., ID, XPath, CSS selector).
             locator (Optional[str]): The locator type.
             expected_condition (Optional[str]): The expected condition type.
 
         Returns:
-            bool: True if the element is found, False otherwise.
+            Union[WebElement, bool]: The located WebElement if found; otherwise, False if the element is not present or an exception occurs.
         """
         try:
-            self.get_element(element_value, locator, expected_condition)
-            return True
+            return self.get_element(element_value, locator, expected_condition)
         except (TimeoutException, NoSuchElementException):
             return False
 
@@ -548,7 +549,7 @@ class WEInteractions(Interactions):
         else:
             select.select_by_value(option)
 
-    def if_web_page_contains_we(
+    def web_page_contains_we(
         self, web_element: WebElement, expected_condition: Optional[str] = None
     ) -> bool:
         """Check if the web page contains an element directly using WebElement
@@ -559,12 +560,13 @@ class WEInteractions(Interactions):
             expected_condition (Optional[str]): The expected condition type.
 
         Returns:
-            bool: True if the element is found, False otherwise.
+            Union[WebElement, bool]: The located WebElement if found; otherwise, False if the element is not present or an exception occurs.
         """
         try:
             condition = self._get_expected_condition(expected_condition)
-            return condition(web_element)(self.driver)
-        except WebDriverException:
+            WebDriverWait(self.driver, self.wait_time).until(condition(web_element))
+            return web_element
+        except (TimeoutException, NoSuchElementException):
             return False
 
     def wait_for_element_we(
