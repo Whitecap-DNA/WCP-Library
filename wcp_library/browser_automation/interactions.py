@@ -8,16 +8,6 @@ The module contains the following classes:
 
 Each class provides methods for performing various web interactions such as navigating to a URL,
 taking screenshots, waiting for elements, clicking buttons, entering text, and more.
-
-Example usage:
-    from selenium import webdriver
-    from interactions import UIInteractions
-
-    driver = webdriver.Chrome()
-    ui_interactions = UIInteractions(driver)
-    ui_interactions.go_to("https://example.com")
-    title = ui_interactions.get_title()
-    print(title)
 """
 
 import logging
@@ -49,46 +39,6 @@ class Interactions:
     def __init__(self, driver):
         self.driver = driver
         logging.basicConfig(level=logging.INFO)
-
-    def go_to(self, url: str):
-        """Navigate to the specified URL.
-
-        Args:
-            url (str): The URL to navigate to.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            self.driver.get(url)
-        else:
-            raise RuntimeError("WebDriver is not initialized.")
-
-    def get_url(self) -> str:
-        """Get the current URL of the page.
-
-        Returns:
-            str: The current URL.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            return self.driver.current_url
-        raise RuntimeError("WebDriver is not initialized.")
-
-    def get_title(self) -> str:
-        """Get the title of the current page.
-
-        Returns:
-            str: The title of the current page.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            return self.driver.title
-        raise RuntimeError("WebDriver is not initialized.")
 
     def take_screenshot(self, file_path: str):
         """Take a screenshot of the current page and save it to the specified file path.
@@ -408,7 +358,8 @@ class UIInteractions(Interactions):
             option (str): The option to select. This can be the visible text,
             index, or value of the option. Default is by value.
             element_value (str): The element value.
-            select_type (str): The type of selection to perform. Default is value.
+            select_type (str): The type of selection to perform.
+                Options: value (default), index, visible_text
             locator (Optional[str]): The locator type.
             expected_condition (Optional[str]): The expected condition type.
         """
@@ -539,7 +490,8 @@ class WEInteractions(Interactions):
             option (str): The option to select. This can be the visible text,
             index, or value of the option. Default is by value.
             web_element (WebElement): The WebElement representing the dropdown.
-            select_type (str): The type of selection to perform. Default is value.
+            select_type (str): The type of selection to perform.
+                Options: value (default), index, visible_text
         """
         select = Select(web_element)
         if select_type == "index":

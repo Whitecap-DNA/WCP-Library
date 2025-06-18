@@ -53,6 +53,7 @@ Usage:
 # | Firefox      | Launch in private browsing mode            | {"args": ["-private"]}                        | -private                                   |
 # +--------------+--------------------------------------------+-----------------------------------------------+--------------------------------------------+
 
+from typing import Dict, Optional
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -64,9 +65,7 @@ from wcp_library.browser_automation.interactions import (
 )
 
 
-class BaseSelenium(
-    UIInteractions, WEInteractions
-):
+class BaseSelenium(UIInteractions, WEInteractions):
     """
     Base class for Selenium-based browser automation.
 
@@ -231,3 +230,98 @@ class Browser(BaseSelenium):
             )
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
+
+    def go_to(self, url: str):
+        """Navigate to the specified URL.
+
+        Args:
+            url (str): The URL to navigate to.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            self.driver.get(url)
+        else:
+            raise RuntimeError("WebDriver is not initialized.")
+
+    def get_url(self) -> str:
+        """Get the current URL of the page.
+
+        Returns:
+            str: The current URL.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            return self.driver.current_url
+        raise RuntimeError("WebDriver is not initialized.")
+
+    def get_title(self) -> str:
+        """Get the title of the current page.
+
+        Returns:
+            str: The title of the current page.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            return self.driver.title
+        raise RuntimeError("WebDriver is not initialized.")
+
+    def switch_to_new_window(
+        self, window_handle: Optional[str] = None
+    ) -> Optional[Dict[str, list]]:
+        """
+        Switches the browser context to a new window.
+
+        If a specific window handle is provided, the driver will switch to that window.
+        Otherwise, it will attempt to switch to a newly opened window that is different
+        from the current one.
+
+        Args:
+            window_handle (Optional[str]): The handle of the window to switch to. If None,
+                the method will search for a new window handle.
+
+        Returns:
+            Optional[Dict[str, list]]: A dictionary containing:
+                - "original_window": The original window handle.
+                - "new_window": The new window handle that was switched to.
+                - "all_windows": A list of all window handles at the time of switching.
+            Returns None if a specific window handle is provided.
+        """
+        if window_handle:
+            self.driver.switch_to.window(window_handle)
+            return None
+
+        original_window = self.driver.current_window_handle
+        all_windows = self.driver.window_handles
+
+        for new_window in all_windows:
+            if new_window != original_window:
+                self.driver.switch_to.window(new_window)
+                return {
+                    "original_window": original_window,
+                    "new_window": new_window,
+                    "all_windows": all_windows,
+                }
+
+        return None
+
+    def close_window(self, window_handle: Optional[str] = None) -> None:
+        """
+        Closes the specified browser window.
+
+        If a window handle is provided, that window will be closed.
+        Otherwise, the currently active window will be closed.
+
+        Args:
+            window_handle (Optional[str]): The handle of the window to close. If None,
+                the current window will be closed.
+
+        Returns:
+            None
+        """
+        self.driver.close(window_handle or self.driver.current_window_handle)
