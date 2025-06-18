@@ -53,9 +53,6 @@ Usage:
 # | Firefox      | Launch in private browsing mode            | {"args": ["-private"]}                        | -private                                   |
 # +--------------+--------------------------------------------+-----------------------------------------------+--------------------------------------------+
 
-
-from docstring_inheritance import GoogleDocstringInheritanceMeta
-
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -68,7 +65,7 @@ from wcp_library.browser_automation.interactions import (
 
 
 class BaseSelenium(
-    UIInteractions, WEInteractions, metaclass=GoogleDocstringInheritanceMeta
+    UIInteractions, WEInteractions
 ):
     """
     Base class for Selenium-based browser automation.
@@ -86,7 +83,7 @@ class BaseSelenium(
         self.driver = None
 
     def __enter__(self) -> "BaseSelenium":
-        self.driver = self.create_driver()
+        self.driver = self._create_driver()
         super().__init__(self.driver)
         return self
 
@@ -98,7 +95,7 @@ class BaseSelenium(
         if self.driver:
             self.driver.quit()
 
-    def create_driver(self) -> webdriver:
+    def _create_driver(self) -> webdriver:
         """
         Abstract method to create a Selenium WebDriver instance.
 
@@ -113,7 +110,7 @@ class BaseSelenium(
         """
         raise NotImplementedError("Subclasses must implement this method")
 
-    def add_options(
+    def _add_options(
         self, options: ChromeOptions | FirefoxOptions | EdgeOptions
     ) -> None:
         """
@@ -173,7 +170,7 @@ class Firefox(BaseSelenium):
 
     def create_driver(self) -> webdriver.Firefox:
         options = FirefoxOptions()
-        self.add_options(options)
+        self._add_options(options)
         return webdriver.Firefox(options=options)
 
 
@@ -187,7 +184,7 @@ class Edge(BaseSelenium):
 
     def create_driver(self) -> webdriver.Edge:
         options = EdgeOptions()
-        self.add_options(options)
+        self._add_options(options)
         return webdriver.Edge(options=options)
 
 
@@ -201,11 +198,11 @@ class Chrome(BaseSelenium):
 
     def create_driver(self) -> webdriver.Chrome:
         options = ChromeOptions()
-        self.add_options(options)
+        self._add_options(options)
         return webdriver.Chrome(options=options)
 
 
-class Browser:
+class Browser(BaseSelenium):
     """
     Class for managing browser automation using Selenium.
 
