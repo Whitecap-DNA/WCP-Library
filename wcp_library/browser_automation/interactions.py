@@ -76,6 +76,27 @@ class Interactions:
             else EC.visibility_of_all_elements_located
         )
 
+    def _get_wait_time(self, wait_time: float) -> float:
+        """If a wait time has been specified it is returned. Otherwise, the wait time comes from
+        the implicit timeout set when initializing the browser. That value is in milliseconds so
+        it is divided by 1000 (WebDriverWait expects a float number in seconds)
+
+        Args:
+            wait_time (float): The wait time to evaluate.
+
+        Return:
+            float: The wait time in seconds.
+        """
+        return (
+            wait_time
+            or (
+                getattr(self, "browser_options", {})
+                .get("timeouts", {})
+                .get("implicit", 0)
+            )
+            / 1000
+        )  # Timeouts are in ms
+
 
 class UIInteractions(Interactions):
     """Class for interacting with UI elements using Selenium WebDriver."""
@@ -164,14 +185,7 @@ class UIInteractions(Interactions):
             WebDriverException: If a WebDriverException occurs.
         """
         try:
-            if not wait_time:
-                wait_time = (
-                    getattr(self, "browser_options", {})
-                    .get("timeouts", {})
-                    .get("implicit", 0)
-                ) / 1000  # Timeouts are in ms
-
-            return WebDriverWait(self.driver, wait_time).until(
+            return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
                 self._get_expected_condition(expected_condition)(
                     (self._get_locator(locator), element_value)
                 )
@@ -218,14 +232,7 @@ class UIInteractions(Interactions):
             WebDriverException: If a WebDriverException occurs.
         """
         try:
-            if not wait_time:
-                wait_time = (
-                    getattr(self, "browser_options", {})
-                    .get("timeouts", {})
-                    .get("implicit", 0)
-                ) / 1000  # Timeouts are in ms
-
-            return WebDriverWait(self.driver, wait_time).until(
+            return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
                 self._get_expect_condition_multiple(expected_condition)(
                     (self._get_locator(locator), element_value)
                 )
@@ -467,19 +474,13 @@ class UIInteractions(Interactions):
         Returns:
             bool: True if the text is found within the element, False otherwise.
         """
-        if not wait_time:
-            wait_time = (
-                getattr(self, "browser_options", {})
-                .get("timeouts", {})
-                .get("implicit", 0)
-            ) / 1000  # Timeouts are in ms
         expected_condition = EC.text_to_be_present_in_element
         if text_location == "attribute":
             expected_condition = EC.text_to_be_present_in_element_attribute
         elif text_location == "value":
             expected_condition = EC.text_to_be_present_in_element_value
 
-        return WebDriverWait(self.driver, wait_time).until(
+        return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
             expected_condition((self._get_locator(locator), element_value), text)
         )
 
@@ -505,14 +506,9 @@ class UIInteractions(Interactions):
         Returns:
             WebElement: The located WebElement.
         """
-        if not wait_time:
-            wait_time = (
-                getattr(self, "browser_options", {})
-                .get("timeouts", {})
-                .get("implicit", 0)
-            ) / 1000  # Timeouts are in ms
-
-        return self.get_element(element_value, locator, expected_condition, wait_time)
+        return self.get_element(
+            element_value, locator, expected_condition, self._get_wait_time(wait_time)
+        )
 
 
 class WEInteractions(Interactions):
@@ -559,15 +555,10 @@ class WEInteractions(Interactions):
         Returns:
             WebElement: The WebElement.
         """
-        if not wait_time:
-            wait_time = (
-                getattr(self, "browser_options", {})
-                .get("timeouts", {})
-                .get("implicit", 0)
-            ) / 1000  # Timeouts are in ms
-
         condition = self._get_expected_condition_we(expected_condition)
-        WebDriverWait(self.driver, wait_time).until(condition(web_element))
+        WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
+            condition(web_element)
+        )
         return web_element
 
     def get_text_we(
@@ -750,12 +741,8 @@ class WEInteractions(Interactions):
             otherwise, False if the element is not present or an exception occurs.
         """
         try:
-            if not wait_time:
-                wait_time = (
-                    getattr(self, "browser_options", {})
-                    .get("timeouts", {})
-                    .get("implicit", 0)
-                ) / 1000  # Timeouts are in ms
-            return self.wait_for_element_we(web_element, expected_condition, wait_time)
+            return self.wait_for_element_we(
+                web_element, expected_condition, self._get_wait_time(wait_time)
+            )
         except (TimeoutException, NoSuchElementException):
             return False
