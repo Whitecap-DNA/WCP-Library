@@ -16,7 +16,7 @@ Classes:
     Browser: Context manager for browser session lifecycle.
 
 Usage:
-    with Browser(Firefox, {"explicit_wait": 5}) as browser:
+    with Browser(Firefox) as browser:
         browser.go_to("https://example.com")
 """
 
@@ -26,7 +26,6 @@ Usage:
 # | Browser      | Description                                | JSON Configuration                            | Possible Permutations                      |
 # +--------------+--------------------------------------------+-----------------------------------------------+--------------------------------------------+
 # | All Browsers | Set browser timeouts (in ms)               | {"timeouts": {"implicit": 5000, ...}}         | implicit, pageLoad, script                 |
-# | All Browsers | Loops added to poll for expected conditions| {"explicit_wait": 10}                         | int                                        |
 # | All Browsers | Name of the browser (e.g., 'chrome', ...)  | {"browserName": "chrome"}                     | chrome, firefox, edge, safari              |
 # | All Browsers | Specific version of the browser to use.    | {"browserVersion": "latest"}                  | latest, 91.0, 90.0                         |
 # | All Browsers | OS platform (e.g., 'Windows 10', 'Linux')  | {"platformName": "Windows 10"}                | Windows 10, Linux, macOS                   |
@@ -124,16 +123,9 @@ class BaseSelenium(UIInteractions, WEInteractions):
         if not self.browser_options:
             return
 
-        # Store explicit wait time if provided
-        if self.browser_options.get("explicit_wait"):
-            self.wait_time = self.browser_options["explicit_wait"]
-
         # Apply standard Selenium options
         for key, value in self.browser_options.items():
-            if hasattr(options, key) and key not in (
-                "args",
-                "explicit_wait",
-            ):
+            if hasattr(options, key) and "args" not in key:
                 setattr(options, key, value)
 
         # Apply command-line arguments
@@ -157,6 +149,101 @@ class BaseSelenium(UIInteractions, WEInteractions):
                     "directory_upgrade": True,
                 }
                 options.add_experimental_option("prefs", prefs)
+
+    def go_to(self, url: str):
+        """Navigate to the specified URL.
+
+        Args:
+            url (str): The URL to navigate to.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            self.driver.get(url)
+        else:
+            raise RuntimeError("WebDriver is not initialized.")
+
+    def get_url(self) -> str:
+        """Get the current URL of the page.
+
+        Returns:
+            str: The current URL.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            return self.driver.current_url
+        raise RuntimeError("WebDriver is not initialized.")
+
+    def get_title(self) -> str:
+        """Get the title of the current page.
+
+        Returns:
+            str: The title of the current page.
+
+        Raises:
+            RuntimeError: If the WebDriver is not initialized.
+        """
+        if self.driver:
+            return self.driver.title
+        raise RuntimeError("WebDriver is not initialized.")
+
+    def switch_to_window(
+        self, window_handle: Optional[str] = None
+    ) -> Optional[Dict[str, list]]:
+        """
+        Switches the browser context to a new window.
+
+        If a specific window handle is provided, the driver will switch to that window.
+        Otherwise, it will attempt to switch to a newly opened window that is different
+        from the current one.
+
+        Args:
+            window_handle (Optional[str]): The handle of the window to switch to. If None,
+                the method will search for a new window handle.
+
+        Returns:
+            Optional[Dict[str, list]]: A dictionary containing:
+                - "original_window": The original window handle.
+                - "new_window": The new window handle that was switched to.
+                - "all_windows": A list of all window handles at the time of switching.
+            Returns None if a specific window handle is provided.
+        """
+        if window_handle:
+            self.driver.switch_to.window(window_handle)
+            return None
+
+        original_window = self.driver.current_window_handle
+        all_windows = self.driver.window_handles
+
+        for new_window in all_windows:
+            if new_window != original_window:
+                self.driver.switch_to.window(new_window)
+                return {
+                    "original_window": original_window,
+                    "new_window": new_window,
+                    "all_windows": all_windows,
+                }
+
+        return None
+
+    def close_window(self, window_handle: Optional[str] = None) -> None:
+        """
+        Closes the specified browser window.
+
+        If a window handle is provided, that window will be closed.
+        Otherwise, the currently active window will be closed.
+
+        Args:
+            window_handle (Optional[str]): The handle of the window to close. If None,
+                the current window will be closed.
+
+        Returns:
+            None
+        """
+        self.driver.close(window_handle or self.driver.current_window_handle)
 
 
 class Firefox(BaseSelenium):
@@ -230,98 +317,3 @@ class Browser(BaseSelenium):
             )
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
-
-    def go_to(self, url: str):
-        """Navigate to the specified URL.
-
-        Args:
-            url (str): The URL to navigate to.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            self.driver.get(url)
-        else:
-            raise RuntimeError("WebDriver is not initialized.")
-
-    def get_url(self) -> str:
-        """Get the current URL of the page.
-
-        Returns:
-            str: The current URL.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            return self.driver.current_url
-        raise RuntimeError("WebDriver is not initialized.")
-
-    def get_title(self) -> str:
-        """Get the title of the current page.
-
-        Returns:
-            str: The title of the current page.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
-        """
-        if self.driver:
-            return self.driver.title
-        raise RuntimeError("WebDriver is not initialized.")
-
-    def switch_to_new_window(
-        self, window_handle: Optional[str] = None
-    ) -> Optional[Dict[str, list]]:
-        """
-        Switches the browser context to a new window.
-
-        If a specific window handle is provided, the driver will switch to that window.
-        Otherwise, it will attempt to switch to a newly opened window that is different
-        from the current one.
-
-        Args:
-            window_handle (Optional[str]): The handle of the window to switch to. If None,
-                the method will search for a new window handle.
-
-        Returns:
-            Optional[Dict[str, list]]: A dictionary containing:
-                - "original_window": The original window handle.
-                - "new_window": The new window handle that was switched to.
-                - "all_windows": A list of all window handles at the time of switching.
-            Returns None if a specific window handle is provided.
-        """
-        if window_handle:
-            self.driver.switch_to.window(window_handle)
-            return None
-
-        original_window = self.driver.current_window_handle
-        all_windows = self.driver.window_handles
-
-        for new_window in all_windows:
-            if new_window != original_window:
-                self.driver.switch_to.window(new_window)
-                return {
-                    "original_window": original_window,
-                    "new_window": new_window,
-                    "all_windows": all_windows,
-                }
-
-        return None
-
-    def close_window(self, window_handle: Optional[str] = None) -> None:
-        """
-        Closes the specified browser window.
-
-        If a window handle is provided, that window will be closed.
-        Otherwise, the currently active window will be closed.
-
-        Args:
-            window_handle (Optional[str]): The handle of the window to close. If None,
-                the current window will be closed.
-
-        Returns:
-            None
-        """
-        self.driver.close(window_handle or self.driver.current_window_handle)
