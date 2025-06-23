@@ -58,6 +58,39 @@ import shutil
 from datetime import datetime
 
 
+def create_folder(path: str, overwrite: bool = False) -> None:
+    """
+    Creates a folder at the specified path.
+
+    Args:
+        path (str): The directory path to create.
+        overwrite (bool): If True, deletes the folder if it exists.
+
+    Raises:
+        FileExistsError: If the folder exists and overwrite is False.
+    """
+    if overwrite:
+        shutil.rmtree(path, ignore_errors=True)
+    elif os.path.exists(path):
+        raise FileExistsError(f"The path '{path}' already exists.")
+
+    os.makedirs(path)
+
+
+def path_exists(path: str) -> bool:
+    """
+    Returns whever the specified file exists
+
+    Args:
+        path (str): The location of the file/folder.
+
+    Returns:
+        bool: True if the path exists, otherwise false
+
+    """
+    return os.path.exists(path)
+
+
 def get_metadata(path: str) -> dict:
     """
     Get metadata of the specified path.
@@ -88,7 +121,7 @@ def get_metadata(path: str) -> dict:
     Raises:
         FileNotFoundError: If the file does not exist.
     """
-    if not os.path.exists(path):
+    if not path_exists(path):
         raise FileNotFoundError(f"The file at {path} does not exist.")
 
     stat_info = os.stat(path)
@@ -155,7 +188,7 @@ def list_folder(folder: str) -> list[dict]:
     Raises:
         FileNotFoundError: If the folder does not exist.
     """
-    if not os.path.exists(folder):
+    if not path_exists(folder):
         raise FileNotFoundError(f"The folder at {folder} does not exist.")
 
     return [get_metadata(os.path.join(folder, item)) for item in os.listdir(folder)]
@@ -193,7 +226,7 @@ def rename(path: str, new_name: str) -> dict:
         FileNotFoundError: If the file does not exist.
         OSError: If the file/folder cannot be renamed.
     """
-    if not os.path.exists(path):
+    if not path_exists(path):
         raise FileNotFoundError(f"The file/folder at {path} does not exist.")
 
     try:
@@ -239,7 +272,7 @@ def copy(path: str, destination: str) -> dict:
         FileNotFoundError: If the source path does not exist.
         OSError: If the copy operation fails.
     """
-    if not os.path.exists(path):
+    if not path_exists(path):
         raise FileNotFoundError(f"The path {path} does not exist.")
 
     try:
@@ -298,7 +331,7 @@ def move(path: str, destination: str) -> dict:
         FileNotFoundError: If the file/folder does not exist.
         OSError: If the file/folder cannot be moved.
     """
-    if not os.path.exists(path):
+    if not path_exists(path):
         raise FileNotFoundError(f"The file/folder at {path} does not exist.")
 
     try:
@@ -328,7 +361,7 @@ def delete(path: str) -> None:
         FileNotFoundError: If the file/folder does not exist.
         OSError: If the file/folder cannot be deleted.
     """
-    if not os.path.exists(path):
+    if not path_exists(path):
         raise FileNotFoundError(f"The file/folder at {path} does not exist.")
 
     try:
