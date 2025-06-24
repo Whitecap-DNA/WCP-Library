@@ -28,10 +28,8 @@ from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from yarl import URL
-from wcp_library.browser_automation.interactions import (
-    UIInteractions,
-    WEInteractions,
-)
+
+from wcp_library.browser_automation.interactions import UIInteractions, WEInteractions
 
 logger = logging.getLogger(__name__)
 
