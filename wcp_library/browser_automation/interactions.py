@@ -43,19 +43,23 @@ class Interactions:
     def take_screenshot(self, file_path: str):
         """Take a screenshot of the current page and save it to the specified file path.
 
-        Args:
-            file_path (str): The path where the screenshot will be saved.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
+        :param file_path: The path where the screenshot will be saved.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         if self.driver:
             self.driver.save_screenshot(file_path)
         else:
             raise RuntimeError("WebDriver is not initialized.")
 
-    def _take_error_screenshot(self):
-        """Take a screenshot of the current page and save it to the P drive."""
+    def _take_error_screenshot(self) -> None:
+        """
+        Take a screenshot of the current page and save it to the P drive.
+
+        :return: None
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         self.take_screenshot(
             f"{EXECUTION_ERROR_SCREENSHOT_FOLDER}/Failure Screenshot - {datetime.now().strftime('%Y-%m-%d_%H-%M')}.png"
         )
@@ -63,13 +67,11 @@ class Interactions:
     def _get_expect_condition_multiple(self, expected_condition: Optional[str]) -> EC:
         """Get the expected condition for multiple elements based on the provided string.
 
-        Args:
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'visible'(Default) and 'present'
-
-        Returns:
-            EC: The expected condition object for multiple elements.
+        :param expected_condition: The expected condition type.
+        :return: The expected condition object for multiple elements.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         return (
             EC.presence_of_all_elements_located
             if expected_condition == "present"
@@ -81,12 +83,11 @@ class Interactions:
         the implicit timeout set when initializing the browser. That value is in milliseconds so
         it is divided by 1000 (WebDriverWait expects a float number in seconds)
 
-        Args:
-            wait_time (float): The wait time to evaluate.
-
-        Return:
-            float: The wait time in seconds.
+        :param wait_time: The wait time in milliseconds.
+        :return: The wait time in seconds.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         return (
             wait_time
             or (
@@ -101,19 +102,14 @@ class Interactions:
 class UIInteractions(Interactions):
     """Class for interacting with UI elements using Selenium WebDriver."""
 
-    def _get_locator(self, locator: str) -> By:
+    def _get_locator(self, locator: str) -> str:
         """Get the locator type based on the provided string.
 
-        Args:
-            locator (str): The locator type as a string.
-
-        Returns:
-            By: The locator type.
-
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
+        :param locator: The locator type.
+        :return: The locator type.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         match locator:
             case "id":
                 by = By.ID
@@ -136,14 +132,11 @@ class UIInteractions(Interactions):
     def _get_expected_condition(self, expected_condition: Optional[str]) -> EC:
         """Get the expected condition based on the provided string.
 
-        Args:
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-
-        Returns:
-            EC: The expected condition object.
+        :param expected_condition: The expected condition type.
+        :return: The expected condition object.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         match expected_condition:
             case "present":
                 expected_condition = EC.presence_of_element_located
@@ -166,24 +159,21 @@ class UIInteractions(Interactions):
     ) -> WebElement:
         """Get a single WebElement based on the expected condition, locator, and element_value.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-            wait_time (Optional[float]): Time to wait for the condition.
-
-        Returns:
-            WebElement: The located WebElement.
-
-        Raises:
-            TimeoutException: If the element is not found within the wait time.
-            NoSuchElementException: If the element is not found.
-            WebDriverException: If a WebDriverException occurs.
+        :param element_value: The expected element value.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
+        :return: The located WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        :raises TimeoutException: If the element is not found within the wait time.
+        :raises NoSuchElementException: If the element is not found.
+        :raises WebDriverException: If a WebDriverException occurs.
         """
+
         try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
                 self._get_expected_condition(expected_condition)(
@@ -213,24 +203,21 @@ class UIInteractions(Interactions):
     ) -> List[WebElement]:
         """Get a list of WebElements based on the expected condition, locator, and element_value.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-            wait_time (Optional[float]): Time to wait for the condition.
-
-        Returns:
-            List[WebElement]: A list of located WebElements.
-
-        Raises:
-            TimeoutException: If the elements are not found within the wait time.
-            NoSuchElementException: If the elements are not found.
-            WebDriverException: If a WebDriverException occurs.
+        :param element_value: The expected element value.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
+        :return: A list of located WebElements.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        :raises TimeoutException: If the elements are not found within the wait time.
+        :raises NoSuchElementException: If the elements are not found.
+        :raises WebDriverException: If a WebDriverException occurs.
         """
+
         try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
                 self._get_expect_condition_multiple(expected_condition)(
@@ -259,18 +246,17 @@ class UIInteractions(Interactions):
     ) -> str:
         """Get the text of the WebElement based on the locator and expected condition.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-
-        Returns:
-            str: The text of the located WebElement.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return: The text of the located WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         return self.get_element(element_value, locator, expected_condition).text
 
     def get_table(
@@ -281,18 +267,17 @@ class UIInteractions(Interactions):
     ) -> pd.DataFrame:
         """Get the data from a table element.
 
-        Args:
-            element_value (str): The value used to identify the element. This needs to be a valid table element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-
-        Returns:
-            pandas.DataFrame: A DataFrame containing the table data.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return: The data from the table element.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         element = self.get_element(element_value, locator, expected_condition)
         return pd.read_html(StringIO(element.get_attribute("outerHTML")))[0]
 
@@ -304,18 +289,17 @@ class UIInteractions(Interactions):
     ) -> str:
         """Get the value attribute of the WebElement based on the locator and expected condition.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-
-        Returns:
-            str: The value attribute of the located WebElement.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return: The value of the located WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         return self.get_element(
             element_value, locator, expected_condition
         ).get_attribute("value")
@@ -328,15 +312,17 @@ class UIInteractions(Interactions):
     ) -> None:
         """Click on the WebElement based on the locator and expected condition.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return:
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         element = self.get_element(element_value, locator, expected_condition)
         element.click()
 
@@ -346,19 +332,21 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
-    ):
+    ) -> None:
         """Populate the text field with the provided text.
 
-        Args:
-            text (str): The text to populate in the field.
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
+        :param text: The text to enter.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return:
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         element = self.get_element(element_value, locator, expected_condition)
         element.clear()
         element.send_keys(text)
@@ -369,19 +357,21 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
-    ):
+    ) -> None:
         """Set the state of a checkbox.
 
-        Args:
-            state (bool): True to check the checkbox, False to uncheck it.
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
+        :param state: The state to set.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return:
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         element = self.get_element(element_value, locator, expected_condition)
         if element.is_selected() != state:
             element.click()
@@ -393,22 +383,22 @@ class UIInteractions(Interactions):
         select_type: str = None,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
-    ):
+    ) -> None:
         """Select an option from a dropdown.
 
-        Args:
-            option (str): The option to select. This can be the visible text,
-            index, or value of the option. Default is by value.
-            element_value (str): The value used to identify the element.
-            select_type (str): The type of selection to perform.
-                Options: value (default), index, visible_text
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
+        :param option: The option to select. This can be the visible text,
+        :param element_value: The value used to identify the element.
+        :param select_type: The type of selection to perform.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :return:
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         element = self.get_element(element_value, locator, expected_condition)
         select = Select(element)
         if select_type == "index":
@@ -429,20 +419,19 @@ class UIInteractions(Interactions):
         Determine whether a web element is present on the page based on
         the provided locator and expected condition.
 
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-            wait_time (Optional[float]): Time to wait for the condition.
-
-        Returns:
-            Union[WebElement, bool]: The located WebElement if found;
-            otherwise, False if the element is not present or an exception occurs.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
+        :return: The located WebElement if found; otherwise, False if the element is not present
+        or an exception occurs.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         try:
             return self.get_element(
                 element_value, locator, expected_condition, wait_time
@@ -461,19 +450,18 @@ class UIInteractions(Interactions):
         """
         Checks whether the specified text is present within a web element.
 
-         Args:
-            texr (str): The text that needs to be verified.
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            text_location (str): Where in the element to look for the text.
-                Options: 'anywhere'(Default), 'attribute;, 'value'
-            wait_time (Optional[float]): Time to wait for the condition.
-
-        Returns:
-            bool: True if the text is found within the element, False otherwise.
+        :param text: The text to verify within the element.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param text_location: Where in the element to look for the text.
+            Options: 'anywhere'(Default), 'attribute', 'value'
+        :param wait_time: Time to wait for the condition.
+        :return: True if the text is found within the element, False otherwise.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         expected_condition = EC.text_to_be_present_in_element
         if text_location == "attribute":
             expected_condition = EC.text_to_be_present_in_element_attribute
@@ -491,21 +479,21 @@ class UIInteractions(Interactions):
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
     ) -> WebElement:
-        """Wait for an element to be present based on the locator and expected condition.
-
-        Args:
-            element_value (str): The value used to identify the element.
-            locator (Optional[str]): The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'present', 'visible',
-                'selected', 'frame_available'
-            wait_time (Optional[float]): Time to wait for the element.
-
-        Returns:
-            WebElement: The located WebElement.
         """
+        Wait for an element to be present based on the locator and expected condition.
+
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'present', 'visible',
+            'selected', 'frame_available'
+        :param wait_time: Time to wait for the element.
+        :return: The located WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         return self.get_element(
             element_value, locator, expected_condition, self._get_wait_time(wait_time)
         )
@@ -518,13 +506,12 @@ class WEInteractions(Interactions):
         """
         Return an expected condition that accepts a WebElement.
 
-        Args:
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-
-        Returns:
-            Callable: A Selenium expected condition function.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :return: A Selenium expected condition function.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         match expected_condition:
             case "visible":
                 expected_condition = EC.visibility_of
@@ -544,17 +531,17 @@ class WEInteractions(Interactions):
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
     ) -> WebElement:
-        """Wait for an element to be present directly using WebElement and expected condition.
-
-        Args:
-            web_element (WebElement): The WebElement to wait for.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
-
-        Returns:
-            WebElement: The WebElement.
         """
+        Wait for an element to be present directly using WebElement and expected condition.
+
+        :param web_element: The WebElement to wait for.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :return: The WebElement if it meets the expected condition.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         condition = self._get_expected_condition_we(expected_condition)
         WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
             condition(web_element)
@@ -567,17 +554,17 @@ class WEInteractions(Interactions):
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
     ) -> str:
-        """Get the text of the WebElement directly.
-
-        Args:
-            web_element (WebElement): The WebElement to get text from.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
-
-        Returns:
-            str: The text of the WebElement.
         """
+        Get the text of the WebElement directly.
+
+        :param web_element: The WebElement to get text from.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :return: The text of the WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -589,17 +576,17 @@ class WEInteractions(Interactions):
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
     ) -> pd.DataFrame:
-        """Get the data from a table element directly.
-
-        Args:
-            web_element (WebElement): The WebElement representing the table.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
-
-        Returns:
-            pandas.DataFrame: A DataFrame containing the table data.
         """
+        Get the data from a table element directly.
+
+        :param web_element: The WebElement representing the table.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :return: A DataFrame containing the table data.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -611,17 +598,17 @@ class WEInteractions(Interactions):
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
     ) -> str:
-        """Get the value attribute of the WebElement directly.
-
-        Args:
-            web_element (WebElement): The WebElement to get value from.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
-
-        Returns:
-            str: The value attribute of the WebElement.
         """
+        Get the value attribute of the WebElement directly.
+
+        :param web_element: The WebElement to get value from.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :return: The value attribute of the WebElement.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -635,12 +622,13 @@ class WEInteractions(Interactions):
     ) -> None:
         """Click on the WebElement directly.
 
-        Args:
-            web_element (WebElement): The WebElement to click.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
+        :param web_element: The WebElement to click.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -652,16 +640,17 @@ class WEInteractions(Interactions):
         web_element: WebElement,
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
-    ):
+    ) -> None:
         """Populate the text field with the provided text directly.
 
-        Args:
-            text (str): The text to populate in the field.
-            web_element (WebElement): The WebElement to populate.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
+        :param text: The text to enter.
+        :param web_element: The WebElement to populate.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -674,16 +663,17 @@ class WEInteractions(Interactions):
         web_element: WebElement,
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
-    ):
+    ) -> None:
         """Set the state of a checkbox directly.
 
-        Args:
-            state (bool): True to check the checkbox, False to uncheck it.
-            web_element (WebElement): The WebElement representing the checkbox.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
+        :param state: The state to set. True to check the checkbox, False to uncheck it.
+        :param web_element: The WebElement representing the checkbox.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -697,19 +687,21 @@ class WEInteractions(Interactions):
         select_type: str = None,
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
-    ):
+    ) -> None:
         """Select an option from a dropdown directly.
 
-        Args:
-            option (str): The option to select. This can be the visible text,
-            index, or value of the option. Default is by value.
-            web_element (WebElement): The WebElement representing the dropdown.
-            select_type (str): The type of selection to perform.
-                Options: value (default), index, visible_text
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the element.
+        :param option: The option to select.
+            This can be the visible text, index, or value of the option.
+            Default is by value.
+        :param web_element: The WebElement representing the dropdown.
+        :param select_type: The type of selection to perform.
+            Options: 'value' (default), 'index', 'visible_text'
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         web_element = self.wait_for_element_we(
             web_element, expected_condition, wait_time
         )
@@ -726,20 +718,19 @@ class WEInteractions(Interactions):
         web_element: WebElement,
         expected_condition: Optional[str] = None,
         wait_time: Optional[float] = 0,
-    ) -> bool:
+    ) -> WebElement | bool:
         """Check if the web page contains an element directly using WebElement
         and expected condition.
 
-        Args:
-            web_element (WebElement): The WebElement to check.
-            expected_condition (Optional[str]): The expected condition type.
-                Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-            wait_time (Optional[float]): Time to wait for the condition.
-
-        Returns:
-            Union[WebElement, bool]: The located WebElement if found;
-            otherwise, False if the element is not present or an exception occurs.
+        :param web_element: The WebElement to check.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the condition.
+        :return: The located WebElement if found; otherwise, False if the element is not present
+        or an exception occurs.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         try:
             return self.wait_for_element_we(
                 web_element, expected_condition, self._get_wait_time(wait_time)

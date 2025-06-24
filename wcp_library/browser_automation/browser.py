@@ -20,6 +20,21 @@ Usage:
         browser.go_to("https://example.com")
 """
 
+import logging
+from typing import Dict, Optional
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from yarl import URL
+
+from wcp_library.browser_automation.interactions import (
+    UIInteractions,
+    WEInteractions,
+)
+
+logger = logging.getLogger(__name__)
+
 # +--------------------------------------------------------------------------------------------------------------------------------------------------------+
 # |                                                    ===  Browser options and usage  ===                                                                 |
 # +--------------+--------------------------------------------+-----------------------------------------------+--------------------------------------------+
@@ -52,17 +67,6 @@ Usage:
 # | Firefox      | Launch in private browsing mode            | {"args": ["-private"]}                        | -private                                   |
 # +--------------+--------------------------------------------+-----------------------------------------------+--------------------------------------------+
 
-from typing import Dict, Optional
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.edge.options import Options as EdgeOptions
-
-from wcp_library.browser_automation.interactions import (
-    UIInteractions,
-    WEInteractions,
-)
-
 
 class BaseSelenium(UIInteractions, WEInteractions):
     """
@@ -71,9 +75,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
     This class provides common functionality for initializing and managing Selenium
     WebDriver instances, as well as adding custom options to the WebDriver.
 
-    Attributes:
-        browser_options (dict): Dictionary containing custom options for the WebDriver.
-        driver (webdriver): Selenium WebDriver instance.
+    :param browser_options: Dictionary containing custom options for the WebDriver.
+    :param driver: Selenium WebDriver instance (optional, defaults to None).
     """
 
     def __init__(self, browser_options: dict = None):
@@ -87,9 +90,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_type:
-            print(
-                f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
-            )
+            logger.error(f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}")
         if self.driver:
             self.driver.quit()
 
@@ -100,12 +101,10 @@ class BaseSelenium(UIInteractions, WEInteractions):
         This method must be implemented by subclasses to instantiate and return
         a specific browser WebDriver (e.g., Chrome, Firefox, Edge).
 
-        Returns:
-            webdriver: A Selenium WebDriver instance for the specified browser.
-
-        Raises:
-            NotImplementedError: If the method is not implemented in the subclass.
+        :return: Selenium WebDriver instance for the specified browser.
+        :raises: NotImplementedError
         """
+
         raise NotImplementedError("Subclasses must implement this method")
 
     def _add_options(
@@ -117,9 +116,9 @@ class BaseSelenium(UIInteractions, WEInteractions):
         This method applies custom options such as headless mode, download paths,
         and command-line arguments to the WebDriver options.
 
-        Args:
-            options (ChromeOptions | FirefoxOptions | EdgeOptions): The WebDriver options to modify.
+        :param options: ChromeOptions | FirefoxOptions | EdgeOptions
         """
+
         if not self.browser_options:
             return
 
@@ -150,29 +149,25 @@ class BaseSelenium(UIInteractions, WEInteractions):
                 }
                 options.add_experimental_option("prefs", prefs)
 
-    def go_to(self, url: str):
+    def go_to(self, url: str | URL):
         """Navigate to the specified URL.
 
-        Args:
-            url (str): The URL to navigate to.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
+        :param url: The URL to navigate to.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         if self.driver:
-            self.driver.get(url)
+            self.driver.get(str(url))
         else:
             raise RuntimeError("WebDriver is not initialized.")
 
     def get_url(self) -> str:
         """Get the current URL of the page.
 
-        Returns:
-            str: The current URL.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
+        :return: The current URL of the page.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         if self.driver:
             return self.driver.current_url
         raise RuntimeError("WebDriver is not initialized.")
@@ -180,12 +175,10 @@ class BaseSelenium(UIInteractions, WEInteractions):
     def get_title(self) -> str:
         """Get the title of the current page.
 
-        Returns:
-            str: The title of the current page.
-
-        Raises:
-            RuntimeError: If the WebDriver is not initialized.
+        :return: The title of the current page.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         if self.driver:
             return self.driver.title
         raise RuntimeError("WebDriver is not initialized.")
@@ -200,17 +193,11 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Otherwise, it will attempt to switch to a newly opened window that is different
         from the current one.
 
-        Args:
-            window_handle (Optional[str]): The handle of the window to switch to. If None,
-                the method will search for a new window handle.
-
-        Returns:
-            Optional[Dict[str, list]]: A dictionary containing:
-                - "original_window": The original window handle.
-                - "new_window": The new window handle that was switched to.
-                - "all_windows": A list of all window handles at the time of switching.
-            Returns None if a specific window handle is provided.
+        :param window_handle: The handle of the window to switch to. If None, the method will search for a new window handle.
+        :return: A dictionary containing the original window handle, the new window handle, and a list of all window handles at the time of switching.
+        :raises RuntimeError: If the WebDriver is not initialized.
         """
+
         if window_handle:
             self.driver.switch_to.window(window_handle)
             return None
@@ -226,7 +213,6 @@ class BaseSelenium(UIInteractions, WEInteractions):
                     "new_window": new_window,
                     "all_windows": all_windows,
                 }
-
         return None
 
     def close_window(self, window_handle: Optional[str] = None) -> None:
@@ -236,13 +222,9 @@ class BaseSelenium(UIInteractions, WEInteractions):
         If a window handle is provided, that window will be closed.
         Otherwise, the currently active window will be closed.
 
-        Args:
-            window_handle (Optional[str]): The handle of the window to close. If None,
-                the current window will be closed.
-
-        Returns:
-            None
+        :param window_handle: The handle of the window to close. If None, the current window will be closed.
         """
+
         self.driver.close(window_handle or self.driver.current_window_handle)
 
 
@@ -295,12 +277,14 @@ class Browser(BaseSelenium):
     This class provides functionality for initializing and managing browser instances
     using the specified browser class and options.
 
-    Attributes:
-        browser_class (type): The class of the browser to be used (e.g., Firefox, Edge, Chrome).
-        browser_options (dict): Dictionary containing custom options for the browser.
+    It acts as a context manager, allowing for easy setup and teardown of browser sessions.
+
+    :param browser_class: The class of the browser to be used (e.g., Firefox, Edge, Chrome).
+    :param browser_options: Dictionary containing custom options for the browser.
     """
 
     def __init__(self, browser_class: type, browser_options: dict = None):
+        super().__init__(browser_options)
         self.browser_class = browser_class
         self.browser_options = browser_options or {}
         self.browser_instance = None
@@ -312,8 +296,6 @@ class Browser(BaseSelenium):
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_type:
-            print(
-                f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
-            )
+            logger.error(f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}")
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
