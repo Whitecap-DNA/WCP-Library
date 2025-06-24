@@ -2,9 +2,9 @@ import asyncio
 import logging
 import random
 import sys
+import time
 from functools import wraps
 from pathlib import Path
-import time
 from typing import Callable, Generator, Optional, Type
 
 # PyInstaller import
