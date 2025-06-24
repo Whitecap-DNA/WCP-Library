@@ -65,7 +65,7 @@ def create_folder(path: str, overwrite: bool = False) -> None:
     Args:
         path (str): The directory path to create.
         overwrite (bool): If True, deletes the folder if it exists.
-
+        Default is False
     Raises:
         FileExistsError: If the folder exists and overwrite is False.
     """
@@ -89,6 +89,18 @@ def path_exists(path: str) -> bool:
 
     """
     return os.path.exists(path)
+
+def file_has_data(path: str) -> bool:
+    """
+    Returns whever the specified file has data in it.
+
+    Args:
+        path (str): The location of the file/folder.
+
+    Returns:
+        bool: True if the size is greater than 0, otherwise false
+    """
+    return os.path.getsize(path) > 0
 
 
 def get_metadata(path: str) -> dict:
