@@ -7,10 +7,9 @@ from pathlib import Path
 import time
 from typing import Callable, Generator, Optional, Type
 
-import cryptography.hazmat.primitives.kdf.pbkdf2
-
 # PyInstaller import
 import pip_system_certs.wrapt_requests
+import cryptography.hazmat.primitives.kdf.pbkdf2
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ def retry(
         def wrapper(*args, **kwargs):
             wait_time = delay
 
-            for attempt in range(1, max_attempts + 1):
+            for attempt in range(0, max_attempts):
                 try:
                     return func(*args, **kwargs)
                 except exception as error:
@@ -85,9 +84,8 @@ def retry(
                     )
                     time.sleep(randomized_delay)
                     wait_time *= backoff
-
+            return None
         return wrapper
-
     return decorator
 
 
@@ -117,7 +115,7 @@ def async_retry(
         async def wrapper(*args, **kwargs):
             wait_time = delay
 
-            for attempt in range(1, max_attempts + 1):
+            for attempt in range(0, max_attempts):
                 try:
                     return await func(*args, **kwargs)
                 except exception as error:
@@ -134,7 +132,6 @@ def async_retry(
                     )
                     await asyncio.sleep(randomized_delay)
                     wait_time *= backoff
-
+            return None
         return wrapper
-
     return decorator
