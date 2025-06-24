@@ -32,6 +32,31 @@ def send_email(sender: str, recipients: list, subject: str, message: str=None) -
     server.quit()
 
 
+def send_html_email(sender: str, recipients: list, subject: str, html_content: str) -> None:
+    """
+    Function to send an HTML email
+
+    :param sender:
+    :param recipients:
+    :param subject:
+    :param html_content:
+    :return:
+    """
+
+    msg = MIMEMultipart('alternative')
+    msg['From'] = sender
+    msg['To'] = ", ".join(recipients)
+    msg['Date'] = formatdate(localtime=True)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_content, 'html'))
+
+    smtpServer = 'mail.wcap.ca'
+    server = smtplib.SMTP(smtpServer, 25)
+    server.ehlo()
+    server.sendmail(sender, recipients, msg.as_string())
+    server.quit()
+
+
 def email_reporting(subject: str, message: str) -> None:
     """
     Function to email the reporting team from the Python email
