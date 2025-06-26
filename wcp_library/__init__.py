@@ -42,24 +42,21 @@ def divide_chunks(list_obj: list, size: int) -> Generator:
 
 
 def retry(
-    exception: Type[Exception],
+    exceptions: tuple[Type[Exception]],
     max_attempts: Optional[int] = MAX_ATTEMPTS,
     delay: Optional[int] = DELAY,
     backoff: Optional[int] = BACKOFF,
     jitter: Optional[int] = JITTER,
 ) -> Callable:
-    """Decorator to retry a synchronous function on a specified exception with
-        exponential backoff and jitter.
+    """
+    Decorator to retry a synchronous function on a specified exception with exponential backoff and jitter.
 
-    Args:
-        exception (Type[Exception]): The exception type to catch and retry on.
-        max_attempts (int): Maximum number of retry attempts.
-        delay (int): Initial delay between retries (in seconds).
-        backoff (int): Multiplier to increase delay after each failure.
-        jitter (int): Maximum number of seconds to add randomly to each delay.
-
-    Returns:
-        Callable: The decorated function with retry logic.
+    :param exceptions: Tuple of exception types to catch and retry on.
+    :param max_attempts: Maximum number of retry attempts.
+    :param delay: Initial delay between retries (in seconds).
+    :param backoff: Multiplier to increase delay after each failure.
+    :param jitter: Maximum number of seconds to add randomly to each delay.
+    :return: The decorated function with retry logic.
     """
 
     def decorator(func: Callable) -> Callable:
@@ -70,7 +67,7 @@ def retry(
             for attempt in range(0, max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except exception as error:
+                except exceptions as error:
                     if attempt == max_attempts:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
@@ -90,24 +87,21 @@ def retry(
 
 
 def async_retry(
-    exception: Type[Exception],
+    exceptions: tuple[Type[Exception]],
     max_attempts: Optional[int] = MAX_ATTEMPTS,
     delay: Optional[int] = DELAY,
     backoff: Optional[int] = BACKOFF,
     jitter: Optional[int] = JITTER,
 ) -> Callable:
-    """Decorator to retry an async function on a specified exception
-        with exponential backoff and jitter.
+    """
+    Decorator to retry an async function on a specified exception with exponential backoff and jitter.
 
-    Args:
-        exception (Type[Exception]): The exception type to catch and retry on.
-        max_attempts (int): Maximum number of retry attempts.
-        delay (int): Initial delay between retries (in seconds).
-        backoff (int): Multiplier to increase delay after each failure.
-        jitter (int): Maximum number of seconds to add randomly to each delay.
-
-    Returns:
-        Callable: The decorated async function with retry logic.
+    :param exceptions: Tuple of exception types to catch and retry on.
+    :param max_attempts: Maximum number of retry attempts.
+    :param delay: Initial delay between retries (in seconds).
+    :param backoff: Multiplier to increase delay after each failure.
+    :param jitter: Maximum number of seconds to add randomly to each delay.
+    :return: The decorated async function with retry logic.
     """
 
     def decorator(func: Callable) -> Callable:
@@ -118,7 +112,7 @@ def async_retry(
             for attempt in range(0, max_attempts):
                 try:
                     return await func(*args, **kwargs)
-                except exception as error:
+                except exceptions as error:
                     if attempt == max_attempts:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
