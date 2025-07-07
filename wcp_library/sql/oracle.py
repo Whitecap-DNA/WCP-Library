@@ -44,7 +44,7 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
         connection = oracledb.connect(
             user=username,
             password=password,
-            dsn=oracledb.makedsn(hostname, port, sid=database)
+            dsn=oracledb.makedsn(hostname, port, service_name=database)
         )
         return connection
 
@@ -82,7 +82,7 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
         connection = await oracledb.connect_async(
             user=username,
             password=password,
-            dsn=oracledb.makedsn(hostname, port, sid=database)
+            dsn=oracledb.makedsn(hostname, port, service_name=database)
         )
         return connection
 
