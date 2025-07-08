@@ -85,21 +85,26 @@ def retry(
                     time.sleep(randomized_delay)
                     wait_time *= backoff
             return None
+
         return wrapper
+
     return decorator
 
 
 def async_retry(
-    exception: Type[Exception],
-    max_attempts: Optional[int] = MAX_ATTEMPTS,
-    delay: Optional[int] = DELAY,
-    backoff: Optional[int] = BACKOFF,
-    jitter: Optional[int] = JITTER,
+    _func=None,
+    *,
+    exception: Type[Exception] = Exception,
+    max_attempts: int = MAX_ATTEMPTS,
+    delay: int = DELAY,
+    backoff: int = BACKOFF,
+    jitter: int = JITTER,
 ) -> Callable:
     """Decorator to retry an async function on a specified exception
         with exponential backoff and jitter.
 
     Args:
+        _func (Callable): The async function to decorate.
         exception (Type[Exception]): The exception type to catch and retry on.
         max_attempts (int): Maximum number of retry attempts.
         delay (int): Initial delay between retries (in seconds).
@@ -114,24 +119,27 @@ def async_retry(
         @wraps(func)
         async def wrapper(*args, **kwargs):
             wait_time = delay
-
-            for attempt in range(0, max_attempts):
+            for attempt in range(max_attempts):
                 try:
                     return await func(*args, **kwargs)
                 except exception as error:
-                    if attempt == max_attempts:
+                    if attempt == max_attempts - 1:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
-
                     randomized_delay = wait_time + random.uniform(0, jitter)
                     logger.warning(
                         "Attempt %d failed: %s. Retrying in %.2f seconds...",
-                        attempt,
+                        attempt + 1,
                         error,
                         randomized_delay,
                     )
                     await asyncio.sleep(randomized_delay)
                     wait_time *= backoff
             return None
+
         return wrapper
-    return decorator
+
+    if _func is None:
+        return decorator
+    else:
+        return decorator(_func)
