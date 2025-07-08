@@ -28,6 +28,10 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 EXECUTION_ERROR_SCREENSHOT_FOLDER = "P:/Python/RPA/Execution Error Screenshots"
 
+class BrowserInteractionError(Exception):
+    """
+    Exception raised when an Seemium interaction with the browser fails.
+    """
 
 class Interactions:
     """Class for interacting with web elements using Selenium WebDriver.
@@ -88,7 +92,7 @@ class Interactions:
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        return (
+        return int(
             wait_time
             or (
                 getattr(self, "browser_options", {})
@@ -97,7 +101,6 @@ class Interactions:
             )
             / 1000
         )  # Timeouts are in ms
-
 
 class UIInteractions(Interactions):
     """Class for interacting with UI elements using Selenium WebDriver."""
@@ -180,19 +183,10 @@ class UIInteractions(Interactions):
                     (self._get_locator(locator), element_value)
                 )
             )
-        except TimeoutException as exc:
+
+        except WebDriverException:
             self._take_error_screenshot()
-            raise TimeoutException(
-                f"Timeout exception for element with locator {locator} and value {element_value}"
-            ) from exc
-        except NoSuchElementException as exc:
-            self._take_error_screenshot()
-            raise NoSuchElementException(
-                f"Element with locator {locator} and value {element_value} not found."
-            ) from exc
-        except WebDriverException as exc:
-            self._take_error_screenshot()
-            raise WebDriverException(f"WebDriverException occurred: {exc}") from exc
+            raise
 
     def get_multiple_elements(
         self,
@@ -224,25 +218,16 @@ class UIInteractions(Interactions):
                     (self._get_locator(locator), element_value)
                 )
             )
-        except TimeoutException as exc:
+        except WebDriverException:
             self._take_error_screenshot()
-            raise TimeoutException(
-                f"Timeout exception for element with locator {locator} and value {element_value} not found."
-            ) from exc
-        except NoSuchElementException as exc:
-            self._take_error_screenshot()
-            raise NoSuchElementException(
-                f"Element with locator {locator} and value {element_value} not found."
-            ) from exc
-        except WebDriverException as exc:
-            self._take_error_screenshot()
-            raise WebDriverException(f"WebDriverException occurred: {exc}") from exc
+            raise
 
     def get_text(
         self,
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> str:
         """Get the text of the WebElement based on the locator and expected condition.
 
@@ -253,17 +238,19 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return: The text of the located WebElement.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        return self.get_element(element_value, locator, expected_condition).text
+        return self.get_element(element_value, locator, expected_condition, wait_time).text
 
     def get_table(
         self,
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> pd.DataFrame:
         """Get the data from a table element.
 
@@ -274,11 +261,12 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return: The data from the table element.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        element = self.get_element(element_value, locator, expected_condition)
+        element = self.get_element(element_value, locator, expected_condition, wait_time)
         return pd.read_html(StringIO(element.get_attribute("outerHTML")))[0]
 
     def get_value(
@@ -286,6 +274,7 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> str:
         """Get the value attribute of the WebElement based on the locator and expected condition.
 
@@ -296,12 +285,13 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return: The value of the located WebElement.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
         return self.get_element(
-            element_value, locator, expected_condition
+            element_value, locator, expected_condition, wait_time
         ).get_attribute("value")
 
     def press_button(
@@ -309,6 +299,7 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> None:
         """Click on the WebElement based on the locator and expected condition.
 
@@ -319,11 +310,12 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return:
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        element = self.get_element(element_value, locator, expected_condition)
+        element = self.get_element(element_value, locator, expected_condition, wait_time)
         element.click()
 
     def enter_text(
@@ -332,6 +324,7 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> None:
         """Populate the text field with the provided text.
 
@@ -343,13 +336,17 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return:
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        element = self.get_element(element_value, locator, expected_condition)
-        element.clear()
-        element.send_keys(text)
+        element = self.get_element(element_value, locator, expected_condition, wait_time)
+        try:
+            element.clear()
+        except WebDriverException:
+            pass
+        element.send_keys(str(text))
 
     def set_checkbox_state(
         self,
@@ -357,6 +354,7 @@ class UIInteractions(Interactions):
         element_value: str,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> None:
         """Set the state of a checkbox.
 
@@ -368,11 +366,12 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return:
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        element = self.get_element(element_value, locator, expected_condition)
+        element = self.get_element(element_value, locator, expected_condition, wait_time)
         if element.is_selected() != state:
             element.click()
 
@@ -383,6 +382,7 @@ class UIInteractions(Interactions):
         select_type: str = None,
         locator: Optional[str] = None,
         expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
     ) -> None:
         """Select an option from a dropdown.
 
@@ -395,11 +395,12 @@ class UIInteractions(Interactions):
         :param expected_condition: The expected condition type.
             Options: 'clickable'(Default), 'present', 'visible',
             'selected', 'frame_available'
+        :param wait_time: Time to wait for the condition.
         :return:
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
-        element = self.get_element(element_value, locator, expected_condition)
+        element = self.get_element(element_value, locator, expected_condition, wait_time)
         select = Select(element)
         if select_type == "index":
             select.select_by_index(int(option))
@@ -431,12 +432,13 @@ class UIInteractions(Interactions):
         or an exception occurs.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
-
         try:
-            return self.get_element(
-                element_value, locator, expected_condition, wait_time
+            return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
+                self._get_expected_condition(expected_condition)(
+                    (self._get_locator(locator), element_value)
+                )
             )
-        except (TimeoutException, NoSuchElementException):
+        except WebDriverException:
             return False
 
     def text_is_present(
