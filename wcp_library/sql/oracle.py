@@ -9,6 +9,7 @@ from oracledb import ConnectionPool, AsyncConnectionPool, Connection, AsyncConne
 from wcp_library.sql import retry, async_retry
 
 logger = logging.getLogger(__name__)
+oracledb.defaults.fetch_lobs = False
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
@@ -44,7 +45,7 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
         connection = oracledb.connect(
             user=username,
             password=password,
-            dsn=oracledb.makedsn(hostname, port, sid=database)
+            dsn=oracledb.makedsn(hostname, port, service_name=database)
         )
         return connection
 
@@ -82,7 +83,7 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
         connection = await oracledb.connect_async(
             user=username,
             password=password,
-            dsn=oracledb.makedsn(hostname, port, sid=database)
+            dsn=oracledb.makedsn(hostname, port, service_name=database)
         )
         return connection
 
@@ -113,7 +114,7 @@ class OracleConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103']
+        self.retry_error_codes = ["ORA-01033", "DPY-6005", "DPY-4011", "ORA-08103"]
 
     @retry
     def _connect(self) -> None:

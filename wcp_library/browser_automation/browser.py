@@ -22,9 +22,11 @@ Usage:
 
 import logging
 import time
+import inspect
 from typing import Dict, Optional
 
 from selenium import webdriver
+import selenium.common.exceptions as selenium_exceptions
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
@@ -33,7 +35,6 @@ from yarl import URL
 from wcp_library.browser_automation.interactions import UIInteractions, WEInteractions
 
 logger = logging.getLogger(__name__)
-
 
 class BaseSelenium(UIInteractions, WEInteractions):
     """
@@ -45,6 +46,15 @@ class BaseSelenium(UIInteractions, WEInteractions):
     :param browser_options: Dictionary containing custom options for the WebDriver.
     :param driver: Selenium WebDriver instance (optional, defaults to None).
     """
+
+    class SeleniumExceptions:
+        """Dynamically collect all Selenium exception classes."""
+
+        ALL = tuple(
+            obj
+            for _, obj in inspect.getmembers(selenium_exceptions)
+            if inspect.isclass(obj) and issubclass(obj, Exception)
+        )
 
     def __init__(self, browser_options: dict = None):
         self.browser_options = browser_options or {}
@@ -58,7 +68,10 @@ class BaseSelenium(UIInteractions, WEInteractions):
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_type:
             logger.error(
-                f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
+                "Exception occurred: %s: %s\nTraceback: %s",
+                exc_type.__name__ if exc_type else None,
+                exc_val,
+                exc_tb,
             )
         if self.driver:
             self.driver.quit()
@@ -118,6 +131,17 @@ class BaseSelenium(UIInteractions, WEInteractions):
                 }
                 options.add_experimental_option("prefs", prefs)
 
+    def refresh_page(self) -> None:
+        """Refresh the current page.
+
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
+        if self.driver:
+            self.driver.refresh()
+        else:
+            raise RuntimeError("WebDriver is not initialized.")
+
     def go_to(self, url: str | URL):
         """Navigate to the specified URL.
 
@@ -151,7 +175,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         if self.driver:
             return self.driver.title
         raise RuntimeError("WebDriver is not initialized.")
-    
+
     def force_wait(self, wait_time: int) -> None:
         """Forces the browser to wait for the specified time.
 
@@ -170,8 +194,10 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Otherwise, it will attempt to switch to a newly opened window that is different
         from the current one.
 
-        :param window_handle: The handle of the window to switch to. If None, the method will search for a new window handle.
-        :return: A dictionary containing the original window handle, the new window handle, and a list of all window handles at the time of switching.
+        :param window_handle: The handle of the window to switch to.
+        If None, the method will search for a new window handle.
+        :return: A dictionary containing the original window handle, the new window handle,
+        and a list of all window handles at the time of switching.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
@@ -190,60 +216,21 @@ class BaseSelenium(UIInteractions, WEInteractions):
                     "new_window": new_window,
                     "all_windows": all_windows,
                 }
+        self.force_wait(1)
         return None
 
     def close_window(self, window_handle: Optional[str] = None) -> None:
         """
         Closes a browser window. If a specific window handle is provided, the driver
         will close that window. Otherwise, the current window will be closed.
-        :param window_handle: The handle of the window to close. If None, the current window will be closed.
+        :param window_handle: The handle of the window to close.
+        If None, the current window will be closed.
         :return: None
         """
         if window_handle:
             current_window = self.driver.current_window_handle
             self.switch_to_window(current_window)
         self.driver.close()
-
-class Firefox(BaseSelenium):
-    """
-    Class for Firefox browser automation using Selenium.
-
-    This class extends the BaseSelenium class and provides functionality for creating
-    and managing Firefox WebDriver instances.
-    """
-
-    def create_driver(self) -> webdriver.Firefox:
-        options = FirefoxOptions()
-        self._add_options(options)
-        return webdriver.Firefox(options=options)
-
-
-class Edge(BaseSelenium):
-    """
-    Class for Edge browser automation using Selenium.
-
-    This class extends the BaseSelenium class and provides functionality for creating
-    and managing Edge WebDriver instances.
-    """
-
-    def create_driver(self) -> webdriver.Edge:
-        options = EdgeOptions()
-        self._add_options(options)
-        return webdriver.Edge(options=options)
-
-
-class Chrome(BaseSelenium):
-    """
-    Class for Chrome browser automation using Selenium.
-
-    This class extends the BaseSelenium class and provides functionality for creating
-    and managing Chrome WebDriver instances.
-    """
-
-    def create_driver(self) -> webdriver.Chrome:
-        options = ChromeOptions()
-        self._add_options(options)
-        return webdriver.Chrome(options=options)
 
 
 class Browser(BaseSelenium):
@@ -273,7 +260,52 @@ class Browser(BaseSelenium):
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if exc_type:
             logger.error(
-                f"Exception occurred: {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
+                "Exception occurred: %s: %s\nTraceback: %s",
+                exc_type.__name__ if exc_type else None,
+                exc_val,
+                exc_tb,
             )
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
+
+    class Firefox(BaseSelenium):
+        """
+        Class for Firefox browser automation using Selenium.
+
+        This class extends the BaseSelenium class and provides functionality for creating
+        and managing Firefox WebDriver instances.
+        """
+
+        def create_driver(self) -> webdriver.Firefox:
+            """Create a Firefox WebDriver instance with specified options."""
+            options = FirefoxOptions()
+            self._add_options(options)
+            return webdriver.Firefox(options=options)
+
+    class Edge(BaseSelenium):
+        """
+        Class for Edge browser automation using Selenium.
+
+        This class extends the BaseSelenium class and provides functionality for creating
+        and managing Edge WebDriver instances.
+        """
+
+        def create_driver(self) -> webdriver.Edge:
+            """Create an Edge WebDriver instance with specified options."""
+            options = EdgeOptions()
+            self._add_options(options)
+            return webdriver.Edge(options=options)
+
+    class Chrome(BaseSelenium):
+        """
+        Class for Chrome browser automation using Selenium.
+
+        This class extends the BaseSelenium class and provides functionality for creating
+        and managing Chrome WebDriver instances.
+        """
+
+        def create_driver(self) -> webdriver.Chrome:
+            """Create a Chrome WebDriver instance with specified options."""
+            options = ChromeOptions()
+            self._add_options(options)
+            return webdriver.Chrome(options=options)
