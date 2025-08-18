@@ -114,7 +114,7 @@ class OracleConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ["ORA-01033", "DPY-6005", "DPY-4011", "ORA-08103"]
+        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021']
 
     @retry
     def _connect(self) -> None:
@@ -393,7 +393,7 @@ class AsyncOracleConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103']
+        self.retry_error_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021']
 
     @async_retry
     async def _connect(self) -> None:

@@ -231,7 +231,7 @@ class UIInteractions(Interactions):
         elements: list[dict],
         wait_time: Optional[float] = 0,
     ) -> None:
-        """Click on the first available WebElement from a list of element dictionaries.
+        """Get the first available WebElement from a list of element dictionaries.
 
         Each dictionary can contain:
             - "element": the element value (required)
@@ -494,39 +494,6 @@ class UIInteractions(Interactions):
         except WebDriverException:
             return False
 
-    def text_is_present(
-        self,
-        text: str,
-        element_value: str,
-        locator: Optional[str] = None,
-        text_location: Optional[str] = None,
-        wait_time: Optional[float] = 0,
-    ) -> bool:
-        """
-        Checks whether the specified text is present within a web element.
-
-        :param text: The text to verify within the element.
-        :param element_value: The value used to identify the element.
-        :param locator: The locator type.
-            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-            'xpath', 'link_text', 'partial_link_text'
-        :param text_location: Where in the element to look for the text.
-            Options: 'anywhere'(Default), 'attribute', 'value'
-        :param wait_time: Time to wait for the condition.
-        :return: True if the text is found within the element, False otherwise.
-        :raises RuntimeError: If the WebDriver is not initialized.
-        """
-
-        expected_condition = EC.text_to_be_present_in_element
-        if text_location == "attribute":
-            expected_condition = EC.text_to_be_present_in_element_attribute
-        elif text_location == "value":
-            expected_condition = EC.text_to_be_present_in_element_value
-
-        return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
-            expected_condition((self._get_locator(locator), element_value), text)
-        )
-
     def wait_for_element(
         self,
         element_value: str,
@@ -552,6 +519,39 @@ class UIInteractions(Interactions):
         return self.get_element(
             element_value, locator, expected_condition, self._get_wait_time(wait_time)
         )
+
+    def text_is_present(
+            self,
+            text: str,
+            element_value: str,
+            locator: Optional[str] = None,
+            text_location: Optional[str] = None,
+            wait_time: Optional[float] = 0,
+        ) -> bool:
+            """
+            Checks whether the specified text is present within a web element.
+
+            :param text: The text to verify within the element.
+            :param element_value: The value used to identify the element.
+            :param locator: The locator type.
+                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+                'xpath', 'link_text', 'partial_link_text'
+            :param text_location: Where in the element to look for the text.
+                Options: 'anywhere'(Default), 'attribute', 'value'
+            :param wait_time: Time to wait for the condition.
+            :return: True if the text is found within the element, False otherwise.
+            :raises RuntimeError: If the WebDriver is not initialized.
+            """
+
+            expected_condition = EC.text_to_be_present_in_element
+            if text_location == "attribute":
+                expected_condition = EC.text_to_be_present_in_element_attribute
+            elif text_location == "value":
+                expected_condition = EC.text_to_be_present_in_element_value
+
+            return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
+                expected_condition((self._get_locator(locator), element_value), text)
+            )
 
 
 class WEInteractions(Interactions):
@@ -579,29 +579,6 @@ class WEInteractions(Interactions):
             case _:
                 expected_condition = EC.element_to_be_clickable
         return expected_condition
-
-    def wait_for_element_we(
-        self,
-        web_element: WebElement,
-        expected_condition: Optional[str] = None,
-        wait_time: Optional[float] = 0,
-    ) -> WebElement:
-        """
-        Wait for an element to be present directly using WebElement and expected condition.
-
-        :param web_element: The WebElement to wait for.
-        :param expected_condition: The expected condition type.
-            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
-        :param wait_time: Time to wait for the element.
-        :return: The WebElement if it meets the expected condition.
-        :raises RuntimeError: If the WebDriver is not initialized.
-        """
-
-        condition = self._get_expected_condition_we(expected_condition)
-        WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
-            condition(web_element)
-        )
-        return web_element
 
     def get_text_we(
         self,
@@ -792,3 +769,26 @@ class WEInteractions(Interactions):
             )
         except (TimeoutException, NoSuchElementException):
             return False
+
+    def wait_for_element_we(
+        self,
+        web_element: WebElement,
+        expected_condition: Optional[str] = None,
+        wait_time: Optional[float] = 0,
+    ) -> WebElement:
+        """
+        Wait for an element to be present directly using WebElement and expected condition.
+
+        :param web_element: The WebElement to wait for.
+        :param expected_condition: The expected condition type.
+            Options: 'clickable'(Default), 'visible', 'selected', 'staleness'
+        :param wait_time: Time to wait for the element.
+        :return: The WebElement if it meets the expected condition.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
+        condition = self._get_expected_condition_we(expected_condition)
+        WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
+            condition(web_element)
+        )
+        return web_element

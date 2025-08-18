@@ -5,7 +5,7 @@ import sys
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Generator, Optional, Type
+from typing import Callable, Generator, Optional, Type, Union
 
 # PyInstaller import
 import pip_system_certs.wrapt_requests
@@ -42,24 +42,21 @@ def divide_chunks(list_obj: list, size: int) -> Generator:
 
 
 def retry(
-    exception: Type[Exception],
+    exceptions: tuple[Type[Exception]],
     max_attempts: Optional[int] = MAX_ATTEMPTS,
     delay: Optional[int] = DELAY,
     backoff: Optional[int] = BACKOFF,
     jitter: Optional[int] = JITTER,
 ) -> Callable:
-    """Decorator to retry a synchronous function on a specified exception with
-        exponential backoff and jitter.
+    """
+    Decorator to retry a synchronous function on a specified exception with exponential backoff and jitter.
 
-    Args:
-        exception (Type[Exception]): The exception type to catch and retry on.
-        max_attempts (int): Maximum number of retry attempts.
-        delay (int): Initial delay between retries (in seconds).
-        backoff (int): Multiplier to increase delay after each failure.
-        jitter (int): Maximum number of seconds to add randomly to each delay.
-
-    Returns:
-        Callable: The decorated function with retry logic.
+    :param exceptions: Tuple of exception types to catch and retry on.
+    :param max_attempts: Maximum number of retry attempts.
+    :param delay: Initial delay between retries (in seconds).
+    :param backoff: Multiplier to increase delay after each failure.
+    :param jitter: Maximum number of seconds to add randomly to each delay.
+    :return: The decorated function with retry logic.
     """
 
     def decorator(func: Callable) -> Callable:
@@ -70,7 +67,7 @@ def retry(
             for attempt in range(0, max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except exception as error:
+                except exceptions as error:
                     if attempt == max_attempts:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
@@ -85,61 +82,50 @@ def retry(
                     time.sleep(randomized_delay)
                     wait_time *= backoff
             return None
-
         return wrapper
-
     return decorator
 
 
 def async_retry(
-    _func=None,
-    *,
-    exception: Type[Exception] = Exception,
-    max_attempts: int = MAX_ATTEMPTS,
-    delay: int = DELAY,
-    backoff: int = BACKOFF,
-    jitter: int = JITTER,
+    exceptions: tuple[Type[Exception]],
+    max_attempts: Optional[int] = MAX_ATTEMPTS,
+    delay: Optional[int] = DELAY,
+    backoff: Optional[int] = BACKOFF,
+    jitter: Optional[int] = JITTER,
 ) -> Callable:
-    """Decorator to retry an async function on a specified exception
-        with exponential backoff and jitter.
+    """
+    Decorator to retry an async function on a specified exception with exponential backoff and jitter.
 
-    Args:
-        _func (Callable): The async function to decorate.
-        exception (Type[Exception]): The exception type to catch and retry on.
-        max_attempts (int): Maximum number of retry attempts.
-        delay (int): Initial delay between retries (in seconds).
-        backoff (int): Multiplier to increase delay after each failure.
-        jitter (int): Maximum number of seconds to add randomly to each delay.
-
-    Returns:
-        Callable: The decorated async function with retry logic.
+    :param exceptions: Tuple of exception types to catch and retry on.
+    :param max_attempts: Maximum number of retry attempts.
+    :param delay: Initial delay between retries (in seconds).
+    :param backoff: Multiplier to increase delay after each failure.
+    :param jitter: Maximum number of seconds to add randomly to each delay.
+    :return: The decorated async function with retry logic.
     """
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
             wait_time = delay
-            for attempt in range(max_attempts):
+
+            for attempt in range(0, max_attempts):
                 try:
                     return await func(*args, **kwargs)
-                except exception as error:
-                    if attempt == max_attempts - 1:
+                except exceptions as error:
+                    if attempt == max_attempts:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
+
                     randomized_delay = wait_time + random.uniform(0, jitter)
                     logger.warning(
                         "Attempt %d failed: %s. Retrying in %.2f seconds...",
-                        attempt + 1,
+                        attempt,
                         error,
                         randomized_delay,
                     )
                     await asyncio.sleep(randomized_delay)
                     wait_time *= backoff
             return None
-
         return wrapper
-
-    if _func is None:
-        return decorator
-    else:
-        return decorator(_func)
+    return decorator

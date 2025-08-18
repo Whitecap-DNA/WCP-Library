@@ -17,7 +17,7 @@ class FTP:
 
         self._ftp_factory: ftputil.session.session_factory = ftputil.session.session_factory(port=self.port)
         self.ftp_connection: Optional[ftputil.FTPHost] = None if not (self._username and self._password) \
-            else ftputil.FTPHost(self.host, self._username, self._password, session_factory=self._ftp_factory)
+            else ftputil.FTPHost(self.host, self._username, self._password) #, session_factory=self._ftp_factory)
 
     def login(self, username: str, password: str) -> None:
         """
