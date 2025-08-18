@@ -25,8 +25,10 @@ def retry(func: callable) -> callable:
                 return func(self, *args, **kwargs)
             except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 if isinstance(e, (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError, psycopg.DatabaseError)):
-                    error_obj, = e.args
-                    if error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
+                    (error_obj,) = e.args
+                    if isinstance(error_obj, str):
+                        raise e
+                    elif error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                         self._retry_count += 1
                         logger.debug("Oracle connection error")
                         logger.debug(error_obj.message)
@@ -55,7 +57,9 @@ def async_retry(func: callable) -> callable:
             except (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError) as e:
                 if isinstance(e, (oracledb.OperationalError, oracledb.DatabaseError, psycopg.OperationalError, psycopg.DatabaseError)):
                     error_obj, = e.args
-                    if error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
+                    if isinstance(error_obj, str):
+                        raise e
+                    elif error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                         self._retry_count += 1
                         logger.debug(f"{self._db_service} connection error")
                         logger.debug(error_obj.message)
