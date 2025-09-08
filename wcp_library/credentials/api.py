@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class APICredentialManager(CredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 214)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 214)
 
     def new_credentials(self, credentials_dict: dict) -> bool:
         """
@@ -41,8 +41,8 @@ class APICredentialManager(CredentialManager):
 
 
 class AsyncAPICredentialManager(AsyncCredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 214)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 214)
 
     async def new_credentials(self, credentials_dict: dict) -> bool:
         """

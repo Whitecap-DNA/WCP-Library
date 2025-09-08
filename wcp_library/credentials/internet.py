@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class InternetCredentialManager(CredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 93)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 93)
 
     def new_credentials(self, credentials_dict: dict) -> bool:
         """
@@ -37,8 +37,8 @@ class InternetCredentialManager(CredentialManager):
 
 
 class AsyncInternetCredentialManager(AsyncCredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 93)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 93)
 
     async def new_credentials(self, credentials_dict: dict) -> bool:
         """

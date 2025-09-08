@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class FTPCredentialManager(CredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 208)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 208)
 
     def new_credentials(self, credentials_dict: dict) -> bool:
         """
@@ -40,8 +40,8 @@ class FTPCredentialManager(CredentialManager):
 
 
 class AsyncFTPCredentialManager(AsyncCredentialManager):
-    def __init__(self, passwordState_api_key: str):
-        super().__init__(passwordState_api_key, 208)
+    def __init__(self, api_key: str):
+        super().__init__(api_key, 208)
 
     async def new_credentials(self, credentials_dict: dict) -> bool:
         """

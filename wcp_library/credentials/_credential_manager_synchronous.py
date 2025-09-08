@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class CredentialManager(ABC):
-    def __init__(self, passwordState_api_key: str, password_list_id: int):
+    def __init__(self, api_key: str, password_list_id: int):
         self.password_url = URL("https://vault.wcap.ca/api/passwords/")
-        self.api_key = passwordState_api_key
+        self.api_key = api_key
         self.headers = {"APIKey": self.api_key, 'Reason': 'Python Script Access'}
         self._password_list_id = password_list_id
 
@@ -23,7 +23,7 @@ class CredentialManager(ABC):
         :return: Dictionary of credentials
         """
 
-        logger.debug("Getting credentials from PasswordState")
+        logger.debug("Getting credentials from Vault")
         url = (self.password_url / str(self._password_list_id)).with_query("QueryAll")
         passwords = requests.get(str(url), headers=self.headers).json()
 
