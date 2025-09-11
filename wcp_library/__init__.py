@@ -42,7 +42,7 @@ def divide_chunks(list_obj: list, size: int) -> Generator:
 
 
 def retry(
-    exceptions: tuple[Type[Exception]],
+    exceptions: tuple,
     max_attempts: Optional[int] = MAX_ATTEMPTS,
     delay: Optional[int] = DELAY,
     backoff: Optional[int] = BACKOFF,
@@ -87,7 +87,7 @@ def retry(
 
 
 def async_retry(
-    exceptions: tuple[Type[Exception]],
+    exceptions: tuple,
     max_attempts: Optional[int] = MAX_ATTEMPTS,
     delay: Optional[int] = DELAY,
     backoff: Optional[int] = BACKOFF,
