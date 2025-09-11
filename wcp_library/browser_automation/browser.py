@@ -185,7 +185,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         time.sleep(wait_time)
 
     def switch_to_window(
-        self, window_handle: Optional[str] = None
+        self, window_handle: Optional[str | list] = None
     ) -> Optional[Dict[str, list]]:
         """
         Switches the browser context to a new window.
@@ -194,10 +194,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Otherwise, it will attempt to switch to a newly opened window that is different
         from the current one.
 
-        :param window_handle: The handle of the window to switch to.
-        If None, the method will search for a new window handle.
-        :return: A dictionary containing the original window handle, the new window handle,
-        and a list of all window handles at the time of switching.
+        :param window_handle: The handle of the window to switch to. If None, the method will search for a new window handle.
+        :return: A dictionary containing the original window handle, the new window handle, and a list of all window handles at the time of switching.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
@@ -223,8 +221,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Closes a browser window. If a specific window handle is provided, the driver
         will close that window. Otherwise, the current window will be closed.
-        :param window_handle: The handle of the window to close.
-        If None, the current window will be closed.
+        :param window_handle: The handle of the window to close. If None, the current window will be closed.
         :return: None
         """
         if window_handle:

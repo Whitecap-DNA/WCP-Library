@@ -230,7 +230,7 @@ class UIInteractions(Interactions):
         self,
         elements: list[dict],
         wait_time: Optional[float] = 0,
-    ) -> None:
+    ) -> WebElement:
         """Get the first available WebElement from a list of element dictionaries.
 
         Each dictionary can contain:
