@@ -1,6 +1,6 @@
 [project]
 name = "wcp-library"
-version = "1.6.9"
+version = "1.6.11"
 description = "Common utilites for internal development at WCP"
 authors = [{name="Mitch-Petersen", email="mitch.petersen@wcap.ca"}]
 readme = "README.md"

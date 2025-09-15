@@ -12,6 +12,7 @@ from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from wcp_library.sql import retry, async_retry
 
 logger = logging.getLogger(__name__)
+postgres_retry_codes = ['08001', '08004']
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
@@ -107,7 +108,7 @@ class PostgresConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['08001', '08004']
+        self.retry_error_codes = postgres_retry_codes
 
     @retry
     def _connect(self) -> None:
@@ -382,7 +383,7 @@ class AsyncPostgresConnection(object):
 
         self._retry_count = 0
         self.retry_limit = 50
-        self.retry_error_codes = ['08001', '08004']
+        self.retry_error_codes = postgres_retry_codes
 
     @async_retry
     async def _connect(self) -> None:
