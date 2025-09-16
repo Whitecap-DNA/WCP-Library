@@ -182,6 +182,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         :param wait_time: The amount of time to wait.
         :return: None
         """
+
         time.sleep(wait_time)
 
     def switch_to_window(

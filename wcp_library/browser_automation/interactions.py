@@ -90,7 +90,7 @@ class Interactions:
         the implicit timeout set when initializing the browser. That value is in milliseconds so
         it is divided by 1000 (WebDriverWait expects a float number in seconds)
 
-        :param wait_time: The wait time in milliseconds.
+        :param wait_time: The wait time in seconds.
         :return: The wait time in seconds.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
@@ -239,7 +239,7 @@ class UIInteractions(Interactions):
             - "expected_condition": the condition to wait for (optional, defaults to "clickable")
 
         :param elements: List of dictionaries defining elements.
-        :param wait_time: The wait time in milliseconds.
+        :param wait_time: The wait time in seconds.
         :raises RuntimeError: If the WebDriver is not initialized.
         """
 
