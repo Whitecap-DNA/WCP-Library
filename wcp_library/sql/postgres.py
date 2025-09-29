@@ -12,7 +12,7 @@ from psycopg_pool import AsyncConnectionPool, ConnectionPool
 from wcp_library.sql import retry, async_retry
 
 logger = logging.getLogger(__name__)
-postgres_retry_codes = ['08001', '08004']
+postgres_retry_codes = ['08001', '08004', '40P01']
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
