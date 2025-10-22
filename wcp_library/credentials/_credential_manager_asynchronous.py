@@ -37,7 +37,9 @@ class AsyncCredentialManager(ABC):
             password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
             for field in password['GenericFieldInfo']:
                 password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
-            password_dict[password['UserName'].lower()] = password_info
+            password_dict[password["UserName"].lower()] = password_info
+            if "URL" in password:
+                password_info['URL'] = password['URL']
             if password['OTP']:
                 password_dict[password['UserName'].lower()]['OTP'] = password['OTP']
         logger.debug("Credentials retrieved")
