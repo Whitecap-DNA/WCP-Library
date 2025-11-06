@@ -281,6 +281,7 @@ class PostgresConnection(object):
         """
 
         df = dfObj[match_cols]
+        df = df.drop_duplicates(keep='first')
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
@@ -556,6 +557,7 @@ class AsyncPostgresConnection(object):
         """
 
         df = dfObj[match_cols]
+        df = df.drop_duplicates(keep='first')
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
