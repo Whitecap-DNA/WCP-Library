@@ -1,4 +1,5 @@
 import smtplib
+import warnings
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -60,9 +61,10 @@ def email_reporting(subject: str, body: str) -> None:
     Function to email the reporting team from the Python email
 
     :param subject: Subject of the email
-    :param message: Body of the email
+    :param body: Body of the email
     :return:
     """
+
     send_email(
         sender="Python@wcap.ca",
         recipients=["Reporting@wcap.ca"],
@@ -84,6 +86,8 @@ def send_html_email(
     :param html_content:
     :return:
     """
+
+    warnings.warn("send_html_email is deprecated. Please use send_email with body_type='html' instead.", DeprecationWarning)
     send_email(
         sender=sender,
         recipients=recipients,
@@ -111,6 +115,8 @@ def email_with_attachments(
     :param attachments:
     :return:
     """
+
+    warnings.warn("email_with_attachments is deprecated. Please use send_email instead.", DeprecationWarning)
     send_email(
         sender=sender,
         recipients=recipients,
@@ -118,53 +124,3 @@ def email_with_attachments(
         body=message,
         attachments=attachments,
     )
-
-
-# def send_email(
-#     sender: str, recipients: list, subject: str, message: str = None
-# ) -> None:
-#     """
-#     Function to send an email
-
-#     :param sender:
-#     :param recipients:
-#     :param subject:
-#     :param message:
-#     :return:
-#     """
-
-#     msg = MIMEMultipart()
-#     msg["From"] = sender
-#     msg["To"] = ", ".join(recipients)
-#     msg["Date"] = formatdate(localtime=True)
-#     msg["Subject"] = subject
-#     msg.attach(MIMEText(message))
-
-#     smtpServer = "mail.wcap.ca"
-#     server = smtplib.SMTP(smtpServer, 25)
-#     server.ehlo()
-#     server.sendmail(sender, recipients, msg.as_string())
-#     server.quit()
-
-
-# def email_reporting(subject: str, message: str) -> None:
-#     """
-#     Function to email the reporting team from the Python email
-
-#     :param subject:
-#     :param message:
-#     :return:
-#     """
-
-#     msg = MIMEMultipart()
-#     msg['From'] = "Python@wcap.ca"
-#     msg['To'] = "Reporting@wcap.ca"
-#     msg['Date'] = formatdate(localtime=True)
-#     msg['Subject'] = subject
-#     msg.attach(MIMEText(message))
-
-#     smtpServer = 'mail.wcap.ca'
-#     server = smtplib.SMTP(smtpServer, 25)
-#     server.ehlo()
-#     server.sendmail("Python@wcap.ca", 'Reporting@wcap.ca', msg.as_string())
-#     server.quit()
