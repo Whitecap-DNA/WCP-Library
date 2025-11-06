@@ -5,7 +5,8 @@ from wcp_library import application_path
 
 
 def create_log(file_level: int, console_level: int, iterations: int, project_name: str, mode: str = "w",
-               format: str = "%(asctime)s:%(levelname)s:%(module)s:%(filename)s:%(lineno)d:%(message)s"):
+               format: str = "%(asctime)s:%(levelname)s:%(module)s:%(filename)s:%(lineno)d:%(message)s",
+               logging_dir: Path = application_path):
     """
     Create log file.
 
@@ -19,13 +20,14 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     :param project_name: Name of the project. (Used as the log file name)
     :param mode: Mode to open the log file. (Default: "w")
     :param format: Log Format (Default: "%(asctime)s:%(levelname)s:%(module)s:%(filename)s:%(lineno)d:%(message)s")
+    :param logging_dir: Directory to save log files. (Default: application_path)
     :return:
     """
 
-    possible_iterative_filenames = [(application_path / (project_name + ".log"))] + [application_path / (project_name + f"_{i + 1}.log") for i in range(iterations)]
+    possible_iterative_filenames = [(logging_dir / (project_name + ".log"))] + [logging_dir / (project_name + f"_{i + 1}.log") for i in range(iterations)]
 
     if iterations == 0:
-        (application_path / (project_name + ".log")).unlink(missing_ok=True)
+        (logging_dir / (project_name + ".log")).unlink(missing_ok=True)
     else:
         last_file = possible_iterative_filenames[-1]
         last_file.unlink(missing_ok=True)
@@ -35,7 +37,7 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
                 possible_iterative_filenames[i - 1].rename(possible_iterative_filenames[i])
 
     logging.basicConfig(
-        filename=(application_path / (project_name + ".log")),
+        filename=(logging_dir / (project_name + ".log")),
         level=file_level,
         format=format,
         filemode=mode
