@@ -10,7 +10,7 @@ from wcp_library.sql import retry, async_retry
 
 logger = logging.getLogger(__name__)
 oracledb.defaults.fetch_lobs = False
-oracle_retry_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652']
+oracle_retry_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652', 'ORA-08103']
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
