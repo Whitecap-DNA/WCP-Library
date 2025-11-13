@@ -7,6 +7,9 @@ from email.utils import formatdate
 from pathlib import Path
 from typing import Optional
 
+SMTP_SERVER = "mail.wcap.ca"
+SMTP_PORT = 25
+
 
 def send_email(
     sender: str,
@@ -43,11 +46,18 @@ def send_email(
     msg["Subject"] = subject
 
     # Attach the body (plain or HTML)
+    if body_type not in ["plain", "html"]:
+        raise ValueError("body_type must be either 'plain' or 'html'")
     msg.attach(MIMEText(body, body_type))
 
     # Attach files if provided
     if attachments:
         for attachment in attachments:
+            if not isinstance(attachment, Path):
+                raise TypeError("attachments must be a list of Path objects")
+            if not attachment.exists() or not attachment.is_file():
+                raise FileNotFoundError(f"Attachment not found: {attachment}")
+
             part = MIMEBase("application", "octet-stream")
             with open(attachment, "rb") as file:
                 part.set_payload(file.read())
@@ -58,13 +68,15 @@ def send_email(
             msg.attach(part)
 
     # Combine all recipients and remove duplicates
-    all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc])) 
+    all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc]))
 
     # Send the email
-    smtp_server = "mail.wcap.ca"
-    with smtplib.SMTP(smtp_server, 25) as server:
-        server.ehlo()
-        server.sendmail(sender, all_recipients, msg.as_string())
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.ehlo()
+            server.sendmail(sender, all_recipients, msg.as_string())
+    except smtplib.SMTPException as e:
+        print(f"Failed to send email: {e}")
 
 
 def email_reporting(subject: str, body: str) -> None:
