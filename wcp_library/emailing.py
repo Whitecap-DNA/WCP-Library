@@ -6,6 +6,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
+from typing import Optional
+
+SMTP_SERVER = "mail.wcap.ca"
+SMTP_PORT = 25
 
 
 def send_email(
@@ -13,8 +17,10 @@ def send_email(
     recipients: list[str],
     subject: str,
     body: str,
-    body_type: str = "plain",
-    attachments: list[Path] = None,
+    body_type: Optional[str] = "plain",
+    attachments: Optional[list[Path]] = None,
+    cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
 ) -> None:
     """
     Send an email with optional HTML formatting and attachments.
@@ -26,20 +32,33 @@ def send_email(
     :param body_type: 'plain' for text, 'html' for HTML content
     :param attachments: List of Path objects for attachments
     """
+    # Normalize optional parameters
+    attachments = attachments or []
+    cc = cc or []
+    bcc = bcc or []
 
     # Create the email container
     msg = MIMEMultipart()
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Date"] = formatdate(localtime=True)
     msg["Subject"] = subject
 
     # Attach the body (plain or HTML)
+    if body_type not in ["plain", "html"]:
+        raise ValueError("body_type must be either 'plain' or 'html'")
     msg.attach(MIMEText(body, body_type))
 
     # Attach files if provided
     if attachments:
         for attachment in attachments:
+            if not isinstance(attachment, Path):
+                raise TypeError("attachments must be a list of Path objects")
+            if not attachment.exists() or not attachment.is_file():
+                raise FileNotFoundError(f"Attachment not found: {attachment}")
+
             part = MIMEBase("application", "octet-stream")
             with open(attachment, "rb") as file:
                 part.set_payload(file.read())
@@ -49,11 +68,16 @@ def send_email(
             )
             msg.attach(part)
 
+    # Combine all recipients and remove duplicates
+    all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc]))
+
     # Send the email
-    smtp_server = "mail.wcap.ca"
-    with smtplib.SMTP(smtp_server, 25) as server:
-        server.ehlo()
-        server.sendmail(sender, recipients, msg.as_string())
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.ehlo()
+            server.sendmail(sender, all_recipients, msg.as_string())
+    except smtplib.SMTPException as e:
+        print(f"Failed to send email: {e}")
 
 
 def email_reporting(subject: str, body: str) -> None:
@@ -101,8 +125,8 @@ def email_with_attachments(
     sender: str,
     recipients: list,
     subject: str,
-    message: str = None,
-    attachments: list[Path] = None,
+    message: Optional[str] = None,
+    attachments: Optional[list[Path]] = None,
 ) -> None:
     """
     ***DEPRECATED: Please don't use this function!

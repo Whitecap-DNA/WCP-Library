@@ -436,7 +436,7 @@ class UIInteractions(Interactions):
     ) -> None:
         """Select an option from a dropdown.
 
-        :param option: The option to select. This can be the visible text,
+        :param option: The option to select. This can be the visible text, index, or value of the option.
         :param element_value: The value used to identify the element.
         :param select_type: The type of selection to perform.
             Options: 'value'(Default), 'index', 'visible_text'
