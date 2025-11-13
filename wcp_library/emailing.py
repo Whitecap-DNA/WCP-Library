@@ -5,6 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
+from typing import Optional
 
 
 def send_email(
@@ -12,8 +13,10 @@ def send_email(
     recipients: list[str],
     subject: str,
     body: str,
-    body_type: str = "plain",
-    attachments: list[Path] = None,
+    body_type: Optional[str] = "plain",
+    attachments: Optional[list[Path]] = None,
+    cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
 ) -> None:
     """
     Send an email with optional HTML formatting and attachments.
@@ -25,11 +28,17 @@ def send_email(
     :param body_type: 'plain' for text, 'html' for HTML content
     :param attachments: List of Path objects for attachments
     """
+    # Normalize optional parameters
+    attachments = attachments or []
+    cc = cc or []
+    bcc = bcc or []
 
     # Create the email container
     msg = MIMEMultipart()
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Date"] = formatdate(localtime=True)
     msg["Subject"] = subject
 
@@ -48,11 +57,14 @@ def send_email(
             )
             msg.attach(part)
 
+    # Combine all recipients and remove duplicates
+    all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc])) 
+
     # Send the email
     smtp_server = "mail.wcap.ca"
     with smtplib.SMTP(smtp_server, 25) as server:
         server.ehlo()
-        server.sendmail(sender, recipients, msg.as_string())
+        server.sendmail(sender, all_recipients, msg.as_string())
 
 
 def email_reporting(subject: str, body: str) -> None:
@@ -97,8 +109,8 @@ def email_with_attachments(
     sender: str,
     recipients: list,
     subject: str,
-    message: str = None,
-    attachments: list[Path] = None,
+    message: Optional[str] = None,
+    attachments: Optional[list[Path]] = None,
 ) -> None:
     """
     ***DEPRECATED: Please don't use this function!
