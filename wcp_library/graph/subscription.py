@@ -31,7 +31,8 @@ def create_subscription(
         "changeType": change_type,
         "clientState": client_state,
         "resource": resource,
-        "notificationUrl": notification_url,
+        "notificationUrl": f"{notification_url}/api/graph",
+        "lifecycleNotificationUrl": f"{notification_url}/api/lifecycle",
         "expirationDateTime": expiration_datetime,
     }
 
@@ -50,7 +51,8 @@ def create_subscription(
             {
                 "resource_type": resource_type,
                 "change_type": change_type,
-                "notification_url": notification_url,
+                "notification_url": f"{notification_url}/api/graph",
+                "lifecycle_notification_url": f"{notification_url}/api/lifecycle",
                 "resource": resource,
                 "expiration_datetime": expiration_datetime,
                 "clientState": client_state,
