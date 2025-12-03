@@ -1,9 +1,8 @@
-import json
 from datetime import datetime, timedelta, timezone
 
 import requests
 
-from wcp_library.graph import REQUEST_TIMEOUT, STORE_PATH
+from wcp_library.graph import REQUEST_TIMEOUT
 
 
 def create_subscription(
@@ -45,22 +44,26 @@ def create_subscription(
         )
         response.raise_for_status()
         data = response.json()
-
-        _add_or_update_subscription_metadata(
-            data.get("id"),
-            {
-                "resource_type": resource_type,
-                "change_type": change_type,
-                "notification_url": f"{notification_url}/api/graph",
-                "lifecycle_notification_url": f"{notification_url}/api/lifecycle",
-                "resource": resource,
-                "expiration_datetime": expiration_datetime,
-                "clientState": client_state,
-            },
-        )
         print(f"Subscription created with ID: {data.get('id')}")
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+
+def get_subscription(headers: dict, subscription_id: str) -> dict | None:
+    """Retrieves a subscription by ID.
+
+    :param headers: The headers containing the Authorization token.
+    :param subscription_id (str): The ID of the subscription to retrieve.
+    :return: A dictionary containing the subscription details, or None if not found.
+    :rtype: dict | None
+    """
+    url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        return None
 
 
 def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
@@ -69,16 +72,12 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to renew.
     """
-    subscription = get_subscription_metadata(subscription_id)
-
-    if not subscription:
-        print(f"Subscription {subscription_id} not found. Cannot renew.")
-        return
+    subscription = get_subscription(headers, subscription_id)
+    expiration_datetime = _calculate_expiration_datetime(
+        subscription.get("resource", "default")
+    )
 
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
-    expiration_datetime = _calculate_expiration_datetime(
-        subscription.get("resource_type", "default")
-    )
     body = {"expirationDateTime": expiration_datetime}
 
     try:
@@ -86,8 +85,6 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
             url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-        subscription["expiration_datetime"] = expiration_datetime
-        _add_or_update_subscription_metadata(subscription_id, subscription)
         print(
             f"Subscription {subscription_id} has been renewed until {expiration_datetime}"
         )
@@ -106,7 +103,7 @@ def _calculate_expiration_datetime(resource_type: str) -> str:
         "mail": 10_069,  # Outlook mail messages/events/contacts (7 days)
         "calendar": 10_070,  # Outlook calendar
         "contacts": 10_070,  # Outlook contacts
-        "onedrive": 42_300,  # OneDrive / SharePoint driveItem (30 days)
+        "drive": 42_300,  # OneDrive / SharePoint driveItem (30 days)
         "sharepoint": 42_300,  # SharePoint lists
         "directory": 41_760,  # Users / Groups / Directory objects (29 days)
         "teams": 4_320,  # Teams channels, chatMessages (3 days)
@@ -153,7 +150,6 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        _remove_subscription_from_file(subscription_id)
         print(f"Subscription {subscription_id} has been deleted")
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
@@ -177,28 +173,21 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
 
-
 def recreate_subscription(headers: dict, subscription_id: str) -> None:
-    """Recreates a stored subscription by ID.
+    """Recreates a subscription by ID.
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to recreate.
     """
-    subscription = get_subscription_metadata(subscription_id)
-    if subscription:
-        delete_subscription(headers, subscription_id)
-
-        create_subscription(
-            headers,
-            subscription.get("notification_url"),
-            subscription.get("resource_type"),
-            subscription.get("resource"),
-            subscription.get("change_type"),
-            subscription.get("clientState"),
-        )
-        print(f"Subscription {subscription_id} has been recreated")
-    else:
-        print(f"Subscription {subscription_id} not found. Cannot be recreated")
+    subscription = get_subscription(headers, subscription_id)
+    create_subscription(
+        headers,
+        subscription.get("notificationUrl"),
+        subscription.get("resource").split("/")[0],
+        subscription.get("resource"),
+        subscription.get("changeType"),
+        subscription.get("clientState"),
+    )
 
 
 def update_notification_url(
@@ -209,91 +198,14 @@ def update_notification_url(
     :param subscription_id (str): The ID of the subscription to update.
     :param new_notification_url (str): The new notification URL to set.
     """
-    subscription = get_subscription_metadata(subscription_id)
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"notificationUrl": new_notification_url}
 
-    if subscription:
-        try:
-            response = requests.patch(
-                url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            print(f"Subscription {subscription_id} notification URL has been updated")
-            subscription["notification_url"] = new_notification_url
-            _add_or_update_subscription_metadata(subscription_id, subscription)
-            print(f"Subscription {subscription_id} notification URL has been updated")
-        except requests.RequestException as e:
-            print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
-    else:
-        print(
-            f"Subscription {subscription_id} not found. Cannot update notification URL."
+    try:
+        response = requests.patch(
+            url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
         )
-
-
-# --------------------- Subscription Storage Management ---------------------
-
-
-def load_subscriptions_from_file() -> dict:
-    """Load all stored subscriptions from the JSON file.
-
-    :return: A dictionary containing all stored subscriptions.
-    """
-    return json.loads(STORE_PATH.read_text(encoding="utf-8"))
-
-
-def get_subscription_metadata(subscription_id: str) -> dict:
-    """Retrieve a subscription's metadata by its ID.
-
-    :param subscription_id (str): The ID of the subscription to retrieve.
-    :return: The subscription metadata as a dictionary, or None if not found.
-    """
-    return load_subscriptions_from_file().get(subscription_id) or {}
-
-
-def get_subscription_differences(headers: dict) -> tuple[list[str], list[str]]:
-    """
-    Returns two lists:
-    - Subscriptions in Microsoft Graph but not in the local file.
-    - Subscriptions in the local file but not in Microsoft Graph.
-
-    :param headers: The headers containing the Authorization token.
-    :return: (graph_only, file_only)
-    """
-    saved_subscriptions = set(load_subscriptions_from_file().keys())
-    graph_subscriptions = {
-        subscription["id"] for subscription in list_subscriptions(headers)
-    }
-    return list(graph_subscriptions - saved_subscriptions), list(
-        saved_subscriptions - graph_subscriptions
-    )
-
-
-def _save_subscriptions_to_file(subscriptions: dict) -> None:
-    """Save the given subscriptions dictionary to the JSON file in a readable format.
-    :param subscriptions (dict): A dictionary containing all subscriptions to save.
-    """
-    STORE_PATH.write_text(
-        json.dumps(subscriptions, indent=2, sort_keys=True), encoding="utf-8"
-    )
-
-
-def _remove_subscription_from_file(subscription_id: str) -> None:
-    """Remove a subscription from the store by its ID.
-
-    :param subscription_id (str): The ID of the subscription to remove.
-    """
-    subscriptions = load_subscriptions_from_file()
-    if subscriptions.pop(subscription_id, None):
-        _save_subscriptions_to_file(subscriptions)
-
-
-def _add_or_update_subscription_metadata(subscription_id: str, metadata: dict) -> None:
-    """Add a new subscription or update an existing one by ID.
-
-    :param subscription_id (str): The ID of the subscription to add or update.
-    :param metadata (dict): The metadata of the subscription to add or update.
-    """
-    subscriptions = load_subscriptions_from_file()
-    subscriptions[subscription_id] = metadata
-    _save_subscriptions_to_file(subscriptions)
+        response.raise_for_status()
+        print(f"Subscription {subscription_id} notification URL has been updated")
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
