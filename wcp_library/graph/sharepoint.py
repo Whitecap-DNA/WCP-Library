@@ -1,4 +1,5 @@
 import base64
+from typing import Union
 
 import requests
 from yarl import URL
@@ -52,7 +53,7 @@ def upload_file(
     site_id: str,
     file_path: str,
     filename: str,
-    content: bytes,
+    content: Union[bytes, bytearray, memoryview, str],
     conflict_behavior: str = "rename",
 ) -> dict | None:
     """Saves a file to a SharePoint site using the Microsoft Graph API.
@@ -62,7 +63,8 @@ def upload_file(
     :param site_id: The ID of the SharePoint site.
     :param file_path: The location of the file to save (e.g. "Shared Documents/My Folder")
     :param filename: The name of the file to save.
-    :param content_bytes: The bytes of the file to save.
+    :param content: The file content as bytes, bytearray, memoryview,
+        or base64-encoded string (from Graph API).
     :param conflict_behavior: The behavior when a file with the same name already exists.
         Options are "rename", "replace", or "fail". Default is "rename".
     :return: The response from the Microsoft Graph API as a JSON object.
@@ -76,7 +78,7 @@ def upload_file(
         response = requests.put(
             url,
             headers=headers,
-            data=base64.b64decode(content),
+            data=_ensure_bytes(content),
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
@@ -89,12 +91,23 @@ def upload_file(
         return None
 
 
+def _ensure_bytes(content: Union[bytes, bytearray, memoryview, str]) -> bytes:
+    if isinstance(content, bytes):
+        return content
+    if isinstance(content, (bytearray, memoryview)):
+        return bytes(content)
+    if isinstance(content, str):
+        return base64.b64decode(content)
+    raise TypeError(f"Unsupported content type: {type(content).__name__}")
+
+
 def download_file(headers: dict, site_id: str, file_path: str) -> bytes | None:
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param file_path: The path of the file to download (e.g. "/Shared Documents/My Folder/file.txt")
+    :param file_path: The path of the file to download
+        (e.g. "/Shared Documents/My Folder/file.txt")
     :return: The content of the file as bytes.
     """
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
@@ -105,20 +118,6 @@ def download_file(headers: dict, site_id: str, file_path: str) -> bytes | None:
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
         return None
-
-
-def _build_payload(
-    destination_path: str | None, new_filename: str | None = None
-) -> dict:
-    """Builds the payload for moving or copying a file within SharePoint.
-    :param destination_path: The destination folder path (e.g. "/Shared Documents/Other Folder")
-    :param new_filename: The new name for the file. If None, the original name is kept.
-    :return: The payload as a dictionary.
-    """
-    payload = {"parentReference": {"path": f"/drive/root:{destination_path}"}}
-    if new_filename:
-        payload["name"] = new_filename
-    return payload
 
 
 def move_file(
@@ -132,7 +131,8 @@ def move_file(
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param source_path: The current path of the file to move (e.g. "/Shared Documents/My Folder/file.txt")
+    :param source_path: The current path of the file to move
+        (e.g. "/Shared Documents/My Folder/file.txt")
     :param destination_path: The destination folder path (e.g. "/Shared Documents/Other Folder")
     :param new_filename: The new name for the file. If None, the original name is kept.
     :return: The response from the Microsoft Graph API as a JSON object.
@@ -169,7 +169,8 @@ def rename_file(
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param file_path: The current path of the file to rename (e.g. "/Shared Documents/My Folder/file.txt")
+    :param file_path: The current path of the file to rename
+        (e.g. "/Shared Documents/My Folder/file.txt")
     :param new_filename: The new name for the file.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
@@ -193,8 +194,10 @@ def copy_file(
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param source_path: The current path of the file to copy (e.g. "/Shared Documents/My Folder/file.txt")
-    :param destination_path: The destination folder path (e.g. "/Shared Documents/Other Folder")
+    :param source_path: The current path of the file to copy
+        (e.g. "/Shared Documents/My Folder/file.txt")
+    :param destination_path: The destination folder path
+        (e.g. "/Shared Documents/Other Folder")
     :param new_filename: The new name for the copied file. If None, the original name is kept.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
@@ -215,12 +218,22 @@ def copy_file(
         return None
 
 
+def _build_payload(
+    destination_path: str | None, new_filename: str | None = None
+) -> dict:
+    payload = {"parentReference": {"path": f"/drive/root:{destination_path}"}}
+    if new_filename:
+        payload["name"] = new_filename
+    return payload
+
+
 def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     """Removes a file from a SharePoint site using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param file_path: The path of the file to remove (e.g. "/Shared Documents/My Folder/file.txt")
+    :param file_path: The path of the file to remove
+        (e.g. "/Shared Documents/My Folder/file.txt")
     :return: True if the file was removed successfully, False otherwise.
     """
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}"
