@@ -73,7 +73,8 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     :param subscription_id (str): The ID of the subscription to renew.
     """
     subscription = get_subscription(headers, subscription_id)
-    expiration_datetime = _calculate_expiration_datetime(subscription)
+    resource_type = _get_resource_type(subscription.get("resource", ""))
+    expiration_datetime = _calculate_expiration_datetime(resource_type)
 
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"expirationDateTime": expiration_datetime}
@@ -90,7 +91,7 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
 
 
-def _calculate_expiration_datetime(subscription: dict) -> str:
+def _calculate_expiration_datetime(resource_type: str) -> str:
     """Calculates the expiration date for a subscription in ISO 8601 format.
 
     :param resource: The resource to subscribe to (e.g. "mail", "calendar", "contacts", "onedrive",
@@ -113,7 +114,6 @@ def _calculate_expiration_datetime(subscription: dict) -> str:
         "default": 1_440,  # Fallback = 1 day
     }
 
-    resource_type = _get_resource_type(subscription.get("resource", ""))
     minutes = lifetime_table.get(resource_type)
     return (
         (datetime.now(timezone.utc) + timedelta(minutes=minutes))
@@ -123,11 +123,6 @@ def _calculate_expiration_datetime(subscription: dict) -> str:
 
 
 def _get_resource_type(resource: str) -> str:
-    """Extracts the resource type from a resource string.
-
-    :param resource: The resource string (e.g. "me/mailFolders('inbox')/messages").
-    :return: The resource type (e.g. "mail").
-    """
     resource_mappings = {
         "mailFolders": "mail",
         "events": "calendar",
