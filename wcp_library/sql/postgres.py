@@ -30,6 +30,13 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
     :return: session_pool
     """
 
+    keepalive_kwargs = {
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 5,
+        "keepalives_count": 5,
+    }
+
     conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
     conninfo = make_conninfo(conn_string)
 
@@ -39,13 +46,13 @@ def _connect_warehouse(username: str, password: str, hostname: str, port: int, d
             conninfo=conninfo,
             min_size=min_connections,
             max_size=max_connections,
-            kwargs={'options': '-c datestyle=ISO,YMD'},
+            kwargs={'options': '-c datestyle=ISO,YMD'} | keepalive_kwargs,
             open=True
         )
         return session_pool
     else:
         logger.debug("Creating single connection")
-        connection = psycopg.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD')
+        connection = psycopg.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD', **keepalive_kwargs)
         return connection
 
 
@@ -64,6 +71,13 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
     :return: session_pool
     """
 
+    keepalive_kwargs = {
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 5,
+        "keepalives_count": 5,
+    }
+
     conn_string = f"dbname={database} user={username} password={password} host={hostname} port={port}"
     conninfo = make_conninfo(conn_string)
 
@@ -73,13 +87,13 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
             conninfo=conninfo,
             min_size=min_connections,
             max_size=max_connections,
-            kwargs={"options": "-c datestyle=ISO,YMD"},
+            kwargs={"options": "-c datestyle=ISO,YMD"} | keepalive_kwargs,
             open=False
         )
         return session_pool
     else:
         logger.debug("Creating single async connection")
-        connection = await AsyncConnection.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD')
+        connection = await AsyncConnection.connect(conninfo=conninfo, options='-c datestyle=ISO,YMD', **keepalive_kwargs)
         return connection
 
 
