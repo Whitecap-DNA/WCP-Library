@@ -48,6 +48,7 @@ def create_subscription(
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
 
+
 def get_subscription(headers: dict, subscription_id: str) -> dict | None:
     """Retrieves a subscription by ID.
 
@@ -99,7 +100,7 @@ def _calculate_expiration_datetime(resource_type: str) -> str:
     :return: The expiration date in ISO 8601 format.
     """
     lifetime_table = {
-        "mail": 10_069,  # Outlook mail messages/events/contacts (7 days)
+        "mail": 10_070,  # Outlook mail messages/events/contacts (7 days)
         "calendar": 10_070,  # Outlook calendar
         "contacts": 10_070,  # Outlook contacts
         "drive": 42_300,  # OneDrive / SharePoint driveItem (30 days)
@@ -124,13 +125,13 @@ def _calculate_expiration_datetime(resource_type: str) -> str:
 
 def _get_resource_type(resource: str) -> str:
     resource_mappings = {
-        "mailFolders": "mail",
+        "messages": "mail",
         "events": "calendar",
         "contacts": "contacts",
         "drive": "drive",
         "sites": "sharepoint",
-        "users": "directory",
         "groups": "directory",
+        "users": "directory",
         "teams": "teams",
         "chats": "teams",
         "presence": "presence",
@@ -141,7 +142,7 @@ def _get_resource_type(resource: str) -> str:
     }
 
     for key, value in resource_mappings.items():
-        if key in resource:
+        if key in resource.lower():
             return value
     return "default"
 
@@ -195,6 +196,7 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
         print(f"Subscription {subscription_id} has been reauthorized")
     except requests.RequestException as e:
         print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+
 
 def recreate_subscription(headers: dict, subscription_id: str) -> None:
     """Recreates a subscription by ID.
