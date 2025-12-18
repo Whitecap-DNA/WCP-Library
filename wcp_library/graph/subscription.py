@@ -76,6 +76,7 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     subscription = get_subscription(headers, subscription_id)
     resource_type = _get_resource_type(subscription.get("resource", ""))
     expiration_datetime = _calculate_expiration_datetime(resource_type)
+    print(f"New expiration datetime: {expiration_datetime}")
 
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"expirationDateTime": expiration_datetime}
@@ -100,9 +101,9 @@ def _calculate_expiration_datetime(resource_type: str) -> str:
     :return: The expiration date in ISO 8601 format.
     """
     lifetime_table = {
-        "mail": 10_070,  # Outlook mail messages/events/contacts (7 days)
-        "calendar": 10_070,  # Outlook calendar
-        "contacts": 10_070,  # Outlook contacts
+        "mail": 10_060,  # Outlook mail messages/events/contacts (7 days)
+        "calendar": 10_060,  # Outlook calendar
+        "contacts": 10_060,  # Outlook contacts
         "drive": 42_300,  # OneDrive / SharePoint driveItem (30 days)
         "sharepoint": 42_300,  # SharePoint lists
         "directory": 41_760,  # Users / Groups / Directory objects (29 days)
