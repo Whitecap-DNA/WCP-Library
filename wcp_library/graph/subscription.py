@@ -76,7 +76,6 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     subscription = get_subscription(headers, subscription_id)
     resource_type = _get_resource_type(subscription.get("resource", ""))
     expiration_datetime = _calculate_expiration_datetime(resource_type)
-    print(f"New expiration datetime: {expiration_datetime}")
 
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"expirationDateTime": expiration_datetime}
