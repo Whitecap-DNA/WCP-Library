@@ -20,21 +20,23 @@ Usage:
         browser.go_to("https://example.com")
 """
 
+import inspect
 import logging
 import time
-import inspect
 from typing import Dict, Optional
 
-from selenium import webdriver
 import selenium.common.exceptions as selenium_exceptions
+from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from yarl import URL
 
-from wcp_library.browser_automation.interactions import UIInteractions, WEInteractions
+from wcp_library.browser_automation.interactions import (UIInteractions,
+                                                         WEInteractions)
 
 logger = logging.getLogger(__name__)
+
 
 class BaseSelenium(UIInteractions, WEInteractions):
     """
@@ -229,6 +231,20 @@ class BaseSelenium(UIInteractions, WEInteractions):
             current_window = self.driver.current_window_handle
             self.switch_to_window(current_window)
         self.driver.close()
+
+    def execute_script(self, script: str, *args) -> any:
+        """Execute JavaScript code in the browser context.
+
+        :param script: The JavaScript code to execute.
+        :param args: Optional arguments to pass to the script (accessible as arguments[0], arguments[1], etc.)
+        :return: The return value of the script execution.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        :raises WebDriverException: If script execution fails.
+        """
+        if self.driver:
+            return self.driver.execute_script(script, *args)
+        else:
+            raise RuntimeError("WebDriver is not initialized.")
 
 
 class Browser(BaseSelenium):
