@@ -17,13 +17,10 @@ class MailServer:
         _credential_manager = InternetCredentialManager(VAULT_API_KEY)
         _credentials = _credential_manager.get_credential_from_id(SMTP2GO_PASSWORD_ID)
 
-        _SMTP_USERNAME = _credentials["UserName"]
-        _SMTP_PASSWORD = _credentials["Password"]
-        _SMTP_SERVER_ADDRESS = "mail.smtp2go.com"
-        _SMTP_PORT = 587
-
-        self.SMTP_SERVER = smtplib.SMTP(_SMTP_SERVER_ADDRESS, _SMTP_PORT)
-        self.SMTP_SERVER.login(_SMTP_USERNAME, _SMTP_PASSWORD)
+        self._SMTP_USERNAME = _credentials["UserName"]
+        self._SMTP_PASSWORD = _credentials["Password"]
+        self._SMTP_SERVER_ADDRESS = "mail.smtp2go.com"
+        self._SMTP_PORT = 587
 
     def send_email(
         self,
@@ -89,7 +86,11 @@ class MailServer:
         # Combine all recipients and remove duplicates
         all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc]))
 
-        self.SMTP_SERVER.sendmail(sender, all_recipients, msg.as_string())
+        # Create fresh connection for each send
+        with smtplib.SMTP(self._SMTP_SERVER_ADDRESS, self._SMTP_PORT) as server:
+            server.starttls()
+            server.login(self._SMTP_USERNAME, self._SMTP_PASSWORD)
+            server.sendmail(sender, all_recipients, msg.as_string())
 
 
     def email_reporting(self, subject: str, body: str) -> None:
