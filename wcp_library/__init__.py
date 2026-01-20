@@ -5,7 +5,7 @@ import sys
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Generator, Optional, Type, Union
+from typing import Callable, Generator
 
 # PyInstaller import
 import pip_system_certs.wrapt_requests
@@ -43,10 +43,10 @@ def divide_chunks(list_obj: list, size: int) -> Generator:
 
 def retry(
     exceptions: tuple,
-    max_attempts: Optional[int] = MAX_ATTEMPTS,
-    delay: Optional[int] = DELAY,
-    backoff: Optional[int] = BACKOFF,
-    jitter: Optional[int] = JITTER,
+    max_attempts: int = MAX_ATTEMPTS,
+    delay: int = DELAY,
+    backoff: int = BACKOFF,
+    jitter: int = JITTER,
 ) -> Callable:
     """
     Decorator to retry a synchronous function on a specified exception with exponential backoff and jitter.
@@ -88,10 +88,10 @@ def retry(
 
 def async_retry(
     exceptions: tuple,
-    max_attempts: Optional[int] = MAX_ATTEMPTS,
-    delay: Optional[int] = DELAY,
-    backoff: Optional[int] = BACKOFF,
-    jitter: Optional[int] = JITTER,
+    max_attempts: int = MAX_ATTEMPTS,
+    delay: int = DELAY,
+    backoff: int = BACKOFF,
+    jitter: int = JITTER,
 ) -> Callable:
     """
     Decorator to retry an async function on a specified exception with exponential backoff and jitter.
