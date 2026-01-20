@@ -6,7 +6,7 @@ import pandas as pd
 import psycopg
 from psycopg import AsyncConnection, Connection
 from psycopg.conninfo import make_conninfo
-from psycopg.sql import SQL
+from psycopg.sql import Composed, Identifier, Placeholder, SQL
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
 from wcp_library.sql import retry, async_retry
@@ -243,7 +243,7 @@ class PostgresConnection(object):
             self._session_pool.putconn(connection)
 
     @retry
-    def execute_many(self, query: SQL | str, dictionary: list[dict]) -> None:
+    def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
         """
         Execute many queries
 
@@ -336,6 +336,59 @@ class PostgresConnection(object):
 
         query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
         self.execute_many(query, main_dict)
+
+    @retry
+    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:
+        """
+        Upsert the DataFrame to the warehouse
+
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns
+        :param match_cols: list of columns to match on
+        :param remove_nan: remove NaN values
+        :return: Number of records upserted
+        """
+
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(columns)):
+            raise ValueError("match_cols must be a subset of columns")
+        if df.empty:
+            return 0
+
+        update_cols = [c for c in columns if c not in match_cols]
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        if update_cols:
+            updates = SQL(", ").join(
+                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
+                for c in update_cols
+            )
+            conflict_action = SQL("DO UPDATE SET {}").format(updates)
+        else:
+            conflict_action = SQL("DO NOTHING")
+
+        query = SQL(
+            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
+        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
+
+        df_copy = df[columns].copy()
+        if remove_nan:
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
+
+        records = list(df_copy.itertuples(index=False, name=None))
+        self.execute_many(query, records)
+        return len(records)
 
     @retry
     def truncate_table(self, tableName: str) -> None:
@@ -519,7 +572,7 @@ class AsyncPostgresConnection(object):
             await self._session_pool.putconn(connection)
 
     @async_retry
-    async def execute_many(self, query: SQL | str, dictionary: list[dict]) -> None:
+    async def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
         """
         Execute many queries
 
@@ -612,6 +665,59 @@ class AsyncPostgresConnection(object):
 
         query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
         await self.execute_many(query, main_dict)
+
+    @async_retry
+    async def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:
+        """
+        Upsert the DataFrame to the warehouse
+
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns
+        :param match_cols: list of columns to match on
+        :param remove_nan: remove NaN values
+        :return: Number of records upserted
+        """
+
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(columns)):
+            raise ValueError("match_cols must be a subset of columns")
+        if df.empty:
+            return 0
+
+        update_cols = [c for c in columns if c not in match_cols]
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        if update_cols:
+            updates = SQL(", ").join(
+                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
+                for c in update_cols
+            )
+            conflict_action = SQL("DO UPDATE SET {}").format(updates)
+        else:
+            conflict_action = SQL("DO NOTHING")
+
+        query = SQL(
+            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
+        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
+
+        df_copy = df[columns].copy()
+        if remove_nan:
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
+
+        records = list(df_copy.itertuples(index=False, name=None))
+        await self.execute_many(query, records)
+        return len(records)
 
     @async_retry
     async def truncate_table(self, tableName: str) -> None:
