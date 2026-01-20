@@ -68,7 +68,7 @@ def retry(
                 try:
                     return func(*args, **kwargs)
                 except exceptions as error:
-                    if attempt == max_attempts:
+                    if attempt == max_attempts - 1:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
 
@@ -113,7 +113,7 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as error:
-                    if attempt == max_attempts:
+                    if attempt == max_attempts - 1:
                         logger.error("Retry failed after %d attempts.", max_attempts)
                         raise
 
