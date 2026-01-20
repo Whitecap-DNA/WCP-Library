@@ -308,7 +308,7 @@ class OracleConnection(object):
         self.execute_many(query, main_dict)
 
     @retry
-    def export_DF_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
         """
         Export the DataFrame to the warehouse
 
@@ -589,7 +589,7 @@ class AsyncOracleConnection(object):
         await self.execute_many(query, main_dict)
 
     @async_retry
-    async def export_DF_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    async def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
         """
         Export the DataFrame to the warehouse
 
