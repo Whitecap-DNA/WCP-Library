@@ -25,6 +25,10 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     :return:
     """
 
+    # Get root logger and clear existing handlers to prevent duplication
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+
     possible_iterative_filenames = [(logging_dir / (project_name + ".log"))] + [logging_dir / (project_name + f"_{i + 1}.log") for i in range(iterations)]
 
     if iterations == 0:
@@ -41,7 +45,8 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
         filename=(logging_dir / (project_name + ".log")),
         level=file_level,
         format=format,
-        filemode=mode
+        filemode=mode,
+        force=True  # Force reconfiguration of logging
     )
 
     MIN_LEVEL = console_level
@@ -50,8 +55,7 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     stdout_hdlr.setLevel(MIN_LEVEL)
     stderr_hdlr.setLevel(max(MIN_LEVEL, logging.WARNING))
 
-    rootLogger = logging.getLogger()
-    rootLogger.addHandler(stdout_hdlr)
-    rootLogger.addHandler(stderr_hdlr)
+    root_logger.addHandler(stdout_hdlr)
+    root_logger.addHandler(stderr_hdlr)
     logger = logging.getLogger(__name__)
     logger.setLevel(console_level)
