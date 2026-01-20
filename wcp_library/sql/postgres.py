@@ -253,8 +253,8 @@ class PostgresConnection(object):
         """
 
         connection = self._get_connection()
+        connection.prepare_threshold = None
         cursor = connection.cursor()
-        cursor.prepare_threshold = None
         cursor.executemany(query, dictionary, returning=False)
         connection.commit()
 
@@ -583,8 +583,8 @@ class AsyncPostgresConnection(object):
         """
 
         connection = await self._get_connection()
+        connection.prepare_threshold = None
         cursor = connection.cursor()
-        cursor.prepare_threshold = None
         await cursor.executemany(query, dictionary, returning=False)
         await connection.commit()
 
