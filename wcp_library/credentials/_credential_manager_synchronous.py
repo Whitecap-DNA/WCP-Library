@@ -25,7 +25,17 @@ class CredentialManager(ABC):
 
         logger.debug("Getting credentials from Vault")
         url = (self.password_url / str(self._password_list_id)).with_query("QueryAll")
-        passwords = requests.get(str(url), headers=self.headers).json()
+
+        try:
+            response = requests.get(str(url), headers=self.headers, timeout=30)
+            response.raise_for_status()
+            passwords = response.json()
+        except requests.Timeout:
+            raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
+        except requests.HTTPError as e:
+            raise MissingCredentialsError(f"HTTP error retrieving credentials: {e.response.status_code}")
+        except ValueError as e:
+            raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
         if not passwords:
             raise MissingCredentialsError("No credentials found in this Password List")
@@ -53,7 +63,17 @@ class CredentialManager(ABC):
 
         logger.debug(f"Getting credential with ID {password_id}")
         url = (self.password_url / str(password_id))
-        password = requests.get(str(url), headers=self.headers).json()
+
+        try:
+            response = requests.get(str(url), headers=self.headers, timeout=30)
+            response.raise_for_status()
+            password = response.json()
+        except requests.Timeout:
+            raise MissingCredentialsError(f"Timeout retrieving credential with ID {password_id}")
+        except requests.HTTPError as e:
+            raise MissingCredentialsError(f"HTTP error retrieving credential {password_id}: {e.response.status_code}")
+        except ValueError as e:
+            raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
         if not password:
             raise MissingCredentialsError(f"No credentials found with ID {password_id}")
@@ -77,12 +97,19 @@ class CredentialManager(ABC):
         :return:
         """
 
-        response = requests.post(str(self.password_url), json=data, headers=self.headers)
-        if response.status_code == 201:
-            logger.debug(f"New credentials for {data['UserName']} created")
-            return True
-        else:
-            logger.error(f"Failed to create new credentials for {data['UserName']}")
+        try:
+            response = requests.post(str(self.password_url), json=data, headers=self.headers, timeout=30)
+            if response.status_code == 201:
+                logger.debug(f"New credentials for {data['UserName']} created")
+                return True
+            else:
+                logger.error(f"Failed to create new credentials for {data['UserName']}: HTTP {response.status_code}")
+                return False
+        except requests.Timeout:
+            logger.error(f"Timeout creating credentials for {data['UserName']}")
+            return False
+        except requests.RequestException as e:
+            logger.error(f"Request error creating credentials for {data['UserName']}: {e}")
             return False
 
     def get_credentials(self, username: str) -> dict:
@@ -131,7 +158,17 @@ class CredentialManager(ABC):
 
         logger.debug(f"Updating credentials for {credentials_dict['UserName']}")
         url = (self.password_url / str(self._password_list_id)).with_query("QueryAll")
-        passwords = requests.get(str(url), headers=self.headers).json()
+
+        try:
+            response = requests.get(str(url), headers=self.headers, timeout=30)
+            response.raise_for_status()
+            passwords = response.json()
+        except requests.Timeout:
+            raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
+        except requests.HTTPError as e:
+            raise MissingCredentialsError(f"HTTP error retrieving credentials: {e.response.status_code}")
+        except ValueError as e:
+            raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
         relevant_credential_entry = [x for x in passwords if x['UserName'] == credentials_dict['UserName']][0]
         for field in relevant_credential_entry['GenericFieldInfo']:
