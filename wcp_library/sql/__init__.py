@@ -30,13 +30,18 @@ def retry(func: callable) -> callable:
                         raise e
                     elif error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                         self._retry_count += 1
-                        logger.debug("Oracle connection error")
-                        logger.debug(error_obj.message)
-                        logger.info("Waiting 5 minutes before retrying Oracle connection")
+                        logger.debug(f"Database connection error: {error_obj.full_code}")
+                        logger.debug(f"Error message: {error_obj.message}")
+                        logger.info(f"Retry attempt {self._retry_count}/{self.retry_limit}. Waiting 5 minutes before retrying connection")
                         sleep(300)
                     else:
+                        if error_obj.full_code not in self.retry_error_codes:
+                            logger.error(f"Non-retryable database error: {error_obj.full_code}")
+                        else:
+                            logger.error(f"Retry limit ({self.retry_limit}) reached for error: {error_obj.full_code}")
                         raise e
-                raise e
+                else:
+                    raise e
     return wrapper
 
 
@@ -61,11 +66,15 @@ def async_retry(func: callable) -> callable:
                         raise e
                     elif error_obj.full_code in self.retry_error_codes and self._retry_count < self.retry_limit:
                         self._retry_count += 1
-                        logger.debug(f"{self._db_service} connection error")
-                        logger.debug(error_obj.message)
-                        logger.info("Waiting 5 minutes before retrying Oracle connection")
+                        logger.debug(f"Database connection error: {error_obj.full_code}")
+                        logger.debug(f"Error message: {error_obj.message}")
+                        logger.info(f"Retry attempt {self._retry_count}/{self.retry_limit}. Waiting 5 minutes before retrying connection")
                         await asyncio.sleep(300)
                     else:
+                        if error_obj.full_code not in self.retry_error_codes:
+                            logger.error(f"Non-retryable database error: {error_obj.full_code}")
+                        else:
+                            logger.error(f"Retry limit ({self.retry_limit}) reached for error: {error_obj.full_code}")
                         raise e
                 else:
                     raise e

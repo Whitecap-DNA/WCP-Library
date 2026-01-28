@@ -1,10 +1,13 @@
 import base64
+import logging
 from typing import Union
 
 import requests
 from yarl import URL
 
 from wcp_library.graph import REQUEST_TIMEOUT
+
+logger = logging.getLogger(__name__)
 
 # ----------------------------------- Site Functions ----------------------------------- #
 
@@ -23,7 +26,9 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -44,7 +49,9 @@ def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | Non
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -84,10 +91,12 @@ def upload_file(
         response.raise_for_status()
         json_response = response.json()
         parent_path = json_response.get("parentReference", {}).get("path", "")
-        print(f"{filename} has been uploaded to: {parent_path}")
+        logger.info(f"{filename} has been uploaded to: {parent_path}")
         return json_response
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -116,7 +125,9 @@ def download_file(headers: dict, site_id: str, file_path: str) -> bytes | None:
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -149,12 +160,14 @@ def move_file(
         response.raise_for_status()
         response_json = response.json()
         parent_path = response_json.get("parentReference", {}).get("path", "")
-        print(
+        logger.info(
             f"{source_path} has been updated to: {parent_path}/{response_json.get('name', '')}"
         )
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -211,10 +224,12 @@ def copy_file(
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        print(f"{source_path} has been copied to: {destination_path}")
+        logger.info(f"{source_path} has been copied to: {destination_path}")
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -240,10 +255,12 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"{file_path} has been removed from SharePoint.")
+        logger.info(f"{file_path} has been removed from SharePoint.")
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return False
 
 
@@ -264,7 +281,9 @@ def get_lists(headers: dict, site_id: str) -> list[dict]:
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return []
 
 
@@ -282,7 +301,9 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -309,7 +330,9 @@ def create_list(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -325,10 +348,12 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"List {list_id} has been removed from site {site_id}.")
+        logger.info(f"List {list_id} has been removed from site {site_id}.")
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return False
 
 
@@ -352,7 +377,9 @@ def get_list_items(
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -373,7 +400,9 @@ def get_list_item_metadata(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -400,7 +429,9 @@ def create_list_item(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -427,7 +458,9 @@ def update_list_item(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -444,8 +477,10 @@ def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) ->
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"Item {item_id} has been removed from list {list_id}.")
+        logger.info(f"Item {item_id} has been removed from list {list_id}.")
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return False

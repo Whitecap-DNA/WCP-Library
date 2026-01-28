@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -108,13 +107,13 @@ class PostgresConnection(object):
     """
 
     def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
-        self._hostname: Optional[str] = None
-        self._port: Optional[int] = None
-        self._database: Optional[str] = None
-        self._connection: Optional[Connection] = None
-        self._session_pool: Optional[ConnectionPool] = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._hostname: str | None = None
+        self._port: int | None = None
+        self._database: str | None = None
+        self._connection: Connection | None = None
+        self._session_pool: ConnectionPool | None = None
 
         self.use_pool = use_pool
         self.min_connections = min_connections
@@ -165,11 +164,11 @@ class PostgresConnection(object):
         :return: None
         """
 
-        self._username: Optional[str] = credentials_dict['UserName']
-        self._password: Optional[str] = credentials_dict['Password']
-        self._hostname: Optional[str] = credentials_dict['Host']
-        self._port: Optional[int] = int(credentials_dict['Port'])
-        self._database: Optional[str] = credentials_dict['Database']
+        self._username = credentials_dict['UserName']
+        self._password = credentials_dict['Password']
+        self._hostname = credentials_dict['Host']
+        self._port = int(credentials_dict['Port'])
+        self._database = credentials_dict['Database']
 
         self._connect()
 
@@ -188,7 +187,7 @@ class PostgresConnection(object):
             self._connection = None
 
     @retry
-    def execute(self, query: SQL | str) -> None:
+    def execute(self, query: SQL | Composed | str) -> None:
         """
         Execute the query
 
@@ -204,7 +203,7 @@ class PostgresConnection(object):
             self._session_pool.putconn(connection)
 
     @retry
-    def safe_execute(self, query: SQL | str, packed_values: dict) -> None:
+    def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
         """
         Execute the query without SQL Injection possibility, to be used with external facing projects.
 
@@ -221,7 +220,7 @@ class PostgresConnection(object):
             self._session_pool.putconn(connection)
 
     @retry
-    def execute_multiple(self, queries: list[tuple[SQL | str, dict]]) -> None:
+    def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -262,7 +261,7 @@ class PostgresConnection(object):
             self._session_pool.putconn(connection)
 
     @retry
-    def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
+    def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
         """
         Fetch the data from the query
 
@@ -285,61 +284,78 @@ class PostgresConnection(object):
         return rows
 
     @retry
-    def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:
+    def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param match_cols: list of columns
-        :return: None
+        :param df: DataFrame
+        :param table_name: output table name
+        :param match_cols: list of columns to match on
+        :return: Number of records matched for deletion
         """
 
-        df = dfObj[match_cols]
-        df = df.drop_duplicates(keep='first')
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
+
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(df.columns)):
+            raise ValueError("match_cols must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        df_subset = df[match_cols].drop_duplicates(keep='first')
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
-        if len(param_list) > 1:
-            params = ' AND '.join(param_list)
-        else:
-            params = param_list[0]
+        params = ' AND '.join(param_list) if len(param_list) > 1 else param_list[0]
 
-        main_dict = df.to_dict('records')
-        query = """DELETE FROM {} WHERE {}""".format(outputTableName, params)
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        query = SQL("DELETE FROM {} WHERE {}").format(table_id, SQL(params))
+
+        main_dict = df_subset.to_dict('records')
         self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @retry
-    def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param columns: list of columns
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns to insert
         :param remove_nan: remove NaN values
-        :return: None
+        :return: Number of records inserted
         """
 
-        col = ', '.join(columns)
-        param_list = []
-        for column in columns:
-            param_list.append(f"%({column})s")
-        params = ', '.join(param_list)
+        columns = list(columns) if not isinstance(columns, list) else columns
 
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        df_copy = df[columns].copy()
         if remove_nan:
-            dfObj = dfObj.replace({np.nan: None})
-        main_dict = dfObj.to_dict('records')
-        for record in main_dict:
-            for key in record:
-                if record[key] == '':
-                    record[key] = None
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
 
-        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
-        self.execute_many(query, main_dict)
+        records = list(df_copy.itertuples(index=False, name=None))
+        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
+        self.execute_many(query, records)
+        return len(records)
 
     @retry
-    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:
+    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
         """
         Upsert the DataFrame to the warehouse
 
@@ -350,6 +366,9 @@ class PostgresConnection(object):
         :param remove_nan: remove NaN values
         :return: Number of records upserted
         """
+
+        columns = list(columns) if not isinstance(columns, list) else columns
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
 
         if not columns:
             raise ValueError("columns cannot be empty")
@@ -392,28 +411,55 @@ class PostgresConnection(object):
         return len(records)
 
     @retry
-    def truncate_table(self, tableName: str) -> None:
+    def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        truncateQuery = f"TRUNCATE TABLE {tableName}"
-        self.execute(truncateQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
+        self.execute(truncate_query)
 
     @retry
-    def empty_table(self, tableName: str) -> None:
+    def empty_table(self, table_name: str) -> None:
         """
         Empty the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        deleteQuery = f"DELETE FROM {tableName}"
-        self.execute(deleteQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        delete_query = SQL("DELETE FROM {}").format(table_id)
+        self.execute(delete_query)
+
+    def __enter__(self):
+        """
+        Context manager entry
+
+        :return: self
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Context manager exit
+
+        :return: None
+        """
+        self.close_connection()
+        return False
 
     def __del__(self) -> None:
         """
@@ -438,13 +484,13 @@ class AsyncPostgresConnection(object):
     """
 
     def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
-        self._hostname: Optional[str] = None
-        self._port: Optional[int] = None
-        self._database: Optional[str] = None
-        self._connection: Optional[AsyncConnection] = None
-        self._session_pool: Optional[AsyncConnectionPool] = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._hostname: str | None = None
+        self._port: str | None = None
+        self._database: str | None = None
+        self._connection: AsyncConnection | None = None
+        self._session_pool: AsyncConnectionPool | None = None
 
         self.use_pool = use_pool
         self.min_connections = min_connections
@@ -495,11 +541,11 @@ class AsyncPostgresConnection(object):
         :return: None
         """
 
-        self._username: Optional[str] = credentials_dict['UserName']
-        self._password: Optional[str] = credentials_dict['Password']
-        self._hostname: Optional[str] = credentials_dict['Host']
-        self._port: Optional[int] = int(credentials_dict['Port'])
-        self._database: Optional[str] = credentials_dict['Database']
+        self._username = credentials_dict['UserName']
+        self._password = credentials_dict['Password']
+        self._hostname = credentials_dict['Host']
+        self._port = int(credentials_dict['Port'])
+        self._database = credentials_dict['Database']
 
         await self._connect()
 
@@ -518,7 +564,7 @@ class AsyncPostgresConnection(object):
             self._connection = None
 
     @async_retry
-    async def execute(self, query: SQL | str) -> None:
+    async def execute(self, query: SQL | Composed | str) -> None:
         """
         Execute the query
 
@@ -534,7 +580,7 @@ class AsyncPostgresConnection(object):
             await self._session_pool.putconn(connection)
 
     @async_retry
-    async def safe_execute(self, query: SQL | str, packed_values: dict) -> None:
+    async def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
         """
         Execute the query without SQL Injection possibility, to be used with external facing projects.
 
@@ -551,7 +597,7 @@ class AsyncPostgresConnection(object):
             await self._session_pool.putconn(connection)
 
     @async_retry
-    async def execute_multiple(self, queries: list[tuple[SQL | str, dict]]) -> None:
+    async def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
         """
         Execute multiple queries
 
@@ -592,7 +638,7 @@ class AsyncPostgresConnection(object):
             await self._session_pool.putconn(connection)
 
     @async_retry
-    async def fetch_data(self, query: SQL | str, packed_data=None) -> list[tuple]:
+    async def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
         """
         Fetch the data from the query
 
@@ -615,61 +661,78 @@ class AsyncPostgresConnection(object):
         return rows
 
     @async_retry
-    async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:
+    async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param match_cols: list of columns
-        :return: None
+        :param df: DataFrame
+        :param table_name: output table name
+        :param match_cols: list of columns to match on
+        :return: Number of records matched for deletion
         """
 
-        df = dfObj[match_cols]
-        df = df.drop_duplicates(keep='first')
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
+
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(df.columns)):
+            raise ValueError("match_cols must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        df_subset = df[match_cols].drop_duplicates(keep='first')
         param_list = []
         for column in match_cols:
             param_list.append(f"{column} = %({column})s")
-        if len(param_list) > 1:
-            params = ' AND '.join(param_list)
-        else:
-            params = param_list[0]
+        params = ' AND '.join(param_list) if len(param_list) > 1 else param_list[0]
 
-        main_dict = df.to_dict('records')
-        query = f"DELETE FROM {outputTableName} WHERE {params}"
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        query = SQL("DELETE FROM {} WHERE {}").format(table_id, SQL(params))
+
+        main_dict = df_subset.to_dict('records')
         await self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @async_retry
-    async def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param columns: list of columns
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns to insert
         :param remove_nan: remove NaN values
-        :return: None
+        :return: Number of records inserted
         """
 
-        col = ', '.join(columns)
-        param_list = []
-        for column in columns:
-            param_list.append(f"%({column})s")
-        params = ', '.join(param_list)
+        columns = list(columns) if not isinstance(columns, list) else columns
 
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        df_copy = df[columns].copy()
         if remove_nan:
-            dfObj = dfObj.replace({np.nan: None})
-        main_dict = dfObj.to_dict('records')
-        for record in main_dict:
-            for key in record:
-                if record[key] == '':
-                    record[key] = None
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
 
-        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({params})"
-        await self.execute_many(query, main_dict)
+        records = list(df_copy.itertuples(index=False, name=None))
+        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
+        await self.execute_many(query, records)
+        return len(records)
 
     @async_retry
-    async def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:
+    async def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
         """
         Upsert the DataFrame to the warehouse
 
@@ -680,6 +743,9 @@ class AsyncPostgresConnection(object):
         :param remove_nan: remove NaN values
         :return: Number of records upserted
         """
+
+        columns = list(columns) if not isinstance(columns, list) else columns
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
 
         if not columns:
             raise ValueError("columns cannot be empty")
@@ -722,25 +788,52 @@ class AsyncPostgresConnection(object):
         return len(records)
 
     @async_retry
-    async def truncate_table(self, tableName: str) -> None:
+    async def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        truncateQuery = f"TRUNCATE TABLE {tableName}"
-        await self.execute(truncateQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
+        await self.execute(truncate_query)
 
     @async_retry
-    async def empty_table(self, tableName: str) -> None:
+    async def empty_table(self, table_name: str) -> None:
         """
         Empty the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        deleteQuery = f"DELETE FROM {tableName}"
-        await self.execute(deleteQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        delete_query = SQL("DELETE FROM {}").format(table_id)
+        await self.execute(delete_query)
+
+    async def __aenter__(self):
+        """
+        Async context manager entry
+
+        :return: self
+        """
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Async context manager exit
+
+        :return: None
+        """
+        await self.close_connection()
+        return False

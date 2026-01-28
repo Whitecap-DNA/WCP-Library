@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+import re
 
 import numpy as np
 import pandas as pd
@@ -11,6 +11,33 @@ from wcp_library.sql import retry, async_retry
 logger = logging.getLogger(__name__)
 oracledb.defaults.fetch_lobs = False
 oracle_retry_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652', 'ORA-08103']
+
+# Pattern for validating Oracle identifiers (prevents SQL injection)
+VALID_IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z][A-Za-z0-9_#$]*(\.[A-Za-z][A-Za-z0-9_#$]*)?$')
+
+
+def _quote_identifier(identifier: str) -> str:
+    """
+    Quote and validate Oracle identifier to prevent SQL injection.
+
+    Oracle identifiers can be schema.table or just table.
+    This validates the identifier and returns it quoted.
+
+    :param identifier: Table or column name
+    :return: Quoted identifier
+    :raises ValueError: If identifier is invalid
+    """
+
+    if not identifier:
+        raise ValueError("Identifier cannot be empty")
+
+    if not VALID_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(f"Invalid Oracle identifier: {identifier}")
+
+    # Quote each part separately if schema.table format
+    parts = identifier.split('.')
+    quoted_parts = [f'"{part.upper()}"' for part in parts]
+    return '.'.join(quoted_parts)
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
@@ -100,14 +127,14 @@ class OracleConnection(object):
     """
 
     def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
-        self._hostname: Optional[str] = None
-        self._port: Optional[int] = None
-        self._database: Optional[str] = None
-        self._sid: Optional[str] = None
-        self._connection: Optional[Connection] = None
-        self._session_pool: Optional[ConnectionPool] = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._hostname: str | None = None
+        self._port: int | None = None
+        self._database: str | None = None
+        self._sid: str | None = None
+        self._connection: Connection | None = None
+        self._session_pool: ConnectionPool | None = None
 
         self.use_pool = use_pool
         self.min_connections = min_connections
@@ -157,15 +184,15 @@ class OracleConnection(object):
         :return: None
         """
 
-        if not ([credentials_dict['Service'] or credentials_dict['SID']]):
+        if not (credentials_dict.get('Service') or credentials_dict.get('SID')):
             raise ValueError("Either Service or SID must be provided")
 
-        self._username: Optional[str] = credentials_dict['UserName']
-        self._password: Optional[str] = credentials_dict['Password']
-        self._hostname: Optional[str] = credentials_dict['Host']
-        self._port: Optional[int] = int(credentials_dict['Port'])
-        self._database: Optional[str] = credentials_dict['Service'] if 'Service' in credentials_dict else None
-        self._sid: Optional[str] = credentials_dict['SID'] if 'SID' in credentials_dict else None
+        self._username = credentials_dict['UserName']
+        self._password = credentials_dict['Password']
+        self._hostname = credentials_dict['Host']
+        self._port = int(credentials_dict['Port'])
+        self._database = credentials_dict.get('Service')
+        self._sid = credentials_dict.get('SID')
 
         self._connect()
 
@@ -198,7 +225,7 @@ class OracleConnection(object):
         connection.commit()
 
         if self.use_pool:
-            self._session_pool.release(self._connection)
+            self._session_pool.release(connection)
 
     @retry
     def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -216,7 +243,7 @@ class OracleConnection(object):
         connection.commit()
 
         if self.use_pool:
-            self._session_pool.release(self._connection)
+            self._session_pool.release(connection)
 
     @retry
     def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
@@ -239,7 +266,7 @@ class OracleConnection(object):
         connection.commit()
 
         if self.use_pool:
-            self._session_pool.release(self._connection)
+            self._session_pool.release(connection)
 
     @retry
     def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -257,7 +284,7 @@ class OracleConnection(object):
         connection.commit()
 
         if self.use_pool:
-            self._session_pool.release(self._connection)
+            self._session_pool.release(connection)
 
     @retry
     def fetch_data(self, query: str, packed_data=None) -> list:
@@ -279,82 +306,124 @@ class OracleConnection(object):
         connection.commit()
 
         if self.use_pool:
-            self._session_pool.release(self._connection)
+            self._session_pool.release(connection)
         return rows
 
     @retry
-    def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:
+    def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param match_cols: list of columns
-        :return: None
+        :param df: DataFrame
+        :param table_name: table name
+        :param match_cols: list of columns to match on
+        :return: Number of records matched for deletion
         """
 
-        df = dfObj[match_cols]
-        df = df.drop_duplicates(keep='first')
-        param_list = []
-        for column in match_cols:
-            param_list.append(f"{column} = :{column}")
-        if len(param_list) > 1:
-            params = ' AND '.join(param_list)
-        else:
-            params = param_list[0]
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
 
-        main_dict = df.to_dict('records')
-        query = f"DELETE FROM {outputTableName} WHERE {params}"
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(df.columns)):
+            raise ValueError("match_cols must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        df_subset = df[match_cols].drop_duplicates(keep='first')
+        param_list = [f"{column} = :{column}" for column in match_cols]
+        params = ' AND '.join(param_list)
+
+        quoted_table = _quote_identifier(table_name)
+        query = f"DELETE FROM {quoted_table} WHERE {params}"
+
+        main_dict = df_subset.to_dict('records')
         self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @retry
-    def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param columns: list of columns
+        :param df: DataFrame
+        :param table_name: table name
+        :param columns: list of columns to insert
         :param remove_nan: remove NaN values
-        :return: None
+        :return: Number of records inserted
         """
 
-        col = ', '.join(columns)
-        bindList = []
-        for column in columns:
-            bindList.append(':' + column)
-        bind = ', '.join(bindList)
+        columns = list(columns) if not isinstance(columns, list) else columns
 
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        quoted_table = _quote_identifier(table_name)
+        quoted_columns = [_quote_identifier(col) for col in columns]
+        col_list = ', '.join(quoted_columns)
+        bind_list = ', '.join([f':{column}' for column in columns])
+
+        df_copy = df[columns].copy()
         if remove_nan:
-            dfObj = dfObj.replace({np.nan: None})
-        main_dict = dfObj.to_dict('records')
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
 
-        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({bind})"
+        main_dict = df_copy.to_dict('records')
+        query = f"INSERT INTO {quoted_table} ({col_list}) VALUES ({bind_list})"
         self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @retry
-    def truncate_table(self, tableName: str) -> None:
+    def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        truncateQuery = f"TRUNCATE TABLE {tableName}"
-        self.execute(truncateQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        quoted_table = _quote_identifier(table_name)
+        truncate_query = f"TRUNCATE TABLE {quoted_table}"
+        self.execute(truncate_query)
 
     @retry
-    def empty_table(self, tableName: str) -> None:
+    def empty_table(self, table_name: str) -> None:
         """
         Empty the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        deleteQuery = f"DELETE FROM {tableName}"
-        self.execute(deleteQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        quoted_table = _quote_identifier(table_name)
+        delete_query = f"DELETE FROM {quoted_table}"
+        self.execute(delete_query)
+
+    def __enter__(self):
+        """
+        Context manager entry
+
+        :return: self
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Context manager exit
+
+        :return: None
+        """
+        self.close_connection()
+        return False
 
     def __del__(self) -> None:
         """
@@ -380,14 +449,14 @@ class AsyncOracleConnection(object):
 
     def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
         self._db_service: str = "Oracle"
-        self._username: Optional[str] = None
-        self._password: Optional[str] = None
-        self._hostname: Optional[str] = None
-        self._port: Optional[int] = None
-        self._database: Optional[str] = None
-        self._sid: Optional[str] = None
-        self._connection: Optional[AsyncConnection] = None
-        self._session_pool: Optional[AsyncConnectionPool] = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._hostname: str | None = None
+        self._port: int | None = None
+        self._database: str | None = None
+        self._sid: str | None = None
+        self._connection: AsyncConnection | None = None
+        self._session_pool: AsyncConnectionPool | None = None
 
         self.use_pool = use_pool
         self.min_connections = min_connections
@@ -438,15 +507,15 @@ class AsyncOracleConnection(object):
         :return: None
         """
 
-        if not ([credentials_dict['Service'] or credentials_dict['SID']]):
+        if not (credentials_dict.get('Service') or credentials_dict.get('SID')):
             raise ValueError("Either Service or SID must be provided")
 
-        self._username: Optional[str] = credentials_dict['UserName']
-        self._password: Optional[str] = credentials_dict['Password']
-        self._hostname: Optional[str] = credentials_dict['Host']
-        self._port: Optional[int] = int(credentials_dict['Port'])
-        self._database: Optional[str] = credentials_dict['Service'] if 'Service' in credentials_dict else None
-        self._sid: Optional[str] = credentials_dict['SID'] if 'SID' in credentials_dict else None
+        self._username = credentials_dict['UserName']
+        self._password = credentials_dict['Password']
+        self._hostname = credentials_dict['Host']
+        self._port = int(credentials_dict['Port'])
+        self._database = credentials_dict.get('Service')
+        self._sid = credentials_dict.get('SID')
 
         await self._connect()
 
@@ -479,7 +548,7 @@ class AsyncOracleConnection(object):
             await connection.commit()
 
         if self.use_pool:
-            await self._session_pool.release(self._connection)
+            await self._session_pool.release(connection)
 
     @async_retry
     async def safe_execute(self, query: str, packed_values: dict) -> None:
@@ -497,7 +566,7 @@ class AsyncOracleConnection(object):
             await connection.commit()
 
         if self.use_pool:
-            await self._session_pool.release(self._connection)
+            await self._session_pool.release(connection)
 
     @async_retry
     async def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
@@ -520,7 +589,7 @@ class AsyncOracleConnection(object):
             await connection.commit()
 
         if self.use_pool:
-            await self._session_pool.release(self._connection)
+            await self._session_pool.release(connection)
 
     @async_retry
     async def execute_many(self, query: str, dictionary: list[dict]) -> None:
@@ -538,7 +607,7 @@ class AsyncOracleConnection(object):
             await connection.commit()
 
         if self.use_pool:
-            await self._session_pool.release(self._connection)
+            await self._session_pool.release(connection)
 
     @async_retry
     async def fetch_data(self, query: str, packed_data=None) -> list:
@@ -560,79 +629,121 @@ class AsyncOracleConnection(object):
         await connection.commit()
 
         if self.use_pool:
-            await self._session_pool.release(self._connection)
+            await self._session_pool.release(connection)
         return rows
 
     @async_retry
-    async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:
+    async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param match_cols: list of columns
-        :return: None
+        :param df: DataFrame
+        :param table_name: table name
+        :param match_cols: list of columns to match on
+        :return: Number of records matched for deletion
         """
 
-        df = dfObj[match_cols]
-        df = df.drop_duplicates(keep='first')
-        param_list = []
-        for column in match_cols:
-            param_list.append(f"{column} = :{column}")
-        if len(param_list) > 1:
-            params = ' AND '.join(param_list)
-        else:
-            params = param_list[0]
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
 
-        main_dict = df.to_dict('records')
-        query = f"DELETE FROM {outputTableName} WHERE {params}"
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(df.columns)):
+            raise ValueError("match_cols must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        df_subset = df[match_cols].drop_duplicates(keep='first')
+        param_list = [f"{column} = :{column}" for column in match_cols]
+        params = ' AND '.join(param_list)
+
+        quoted_table = _quote_identifier(table_name)
+        query = f"DELETE FROM {quoted_table} WHERE {params}"
+
+        main_dict = df_subset.to_dict('records')
         await self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @async_retry
-    async def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:
+    async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
 
-        :param dfObj: DataFrame
-        :param outputTableName: output table name
-        :param columns: list of columns
+        :param df: DataFrame
+        :param table_name: table name
+        :param columns: list of columns to insert
         :param remove_nan: remove NaN values
-        :return: None
+        :return: Number of records inserted
         """
 
-        col = ', '.join(columns)
-        bindList = []
-        for column in columns:
-            bindList.append(':' + column)
-        bind = ', '.join(bindList)
+        columns = list(columns) if not isinstance(columns, list) else columns
 
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        quoted_table = _quote_identifier(table_name)
+        quoted_columns = [_quote_identifier(col) for col in columns]
+        col_list = ', '.join(quoted_columns)
+        bind_list = ', '.join([f':{column}' for column in columns])
+
+        df_copy = df[columns].copy()
         if remove_nan:
-            dfObj = dfObj.replace({np.nan: None})
-        main_dict = dfObj.to_dict('records')
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
 
-        query = f"INSERT INTO {outputTableName} ({col}) VALUES ({bind})"
+        main_dict = df_copy.to_dict('records')
+        query = f"INSERT INTO {quoted_table} ({col_list}) VALUES ({bind_list})"
         await self.execute_many(query, main_dict)
+        return len(main_dict)
 
     @async_retry
-    async def truncate_table(self, tableName: str) -> None:
+    async def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        truncateQuery = f"TRUNCATE TABLE {tableName}"
-        await self.execute(truncateQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        quoted_table = _quote_identifier(table_name)
+        truncate_query = f"TRUNCATE TABLE {quoted_table}"
+        await self.execute(truncate_query)
 
     @async_retry
-    async def empty_table(self, tableName: str) -> None:
+    async def empty_table(self, table_name: str) -> None:
         """
         Empty the table
 
-        :param tableName: table name
+        :param table_name: table name
         :return: None
         """
 
-        deleteQuery = f"DELETE FROM {tableName}"
-        await self.execute(deleteQuery)
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        quoted_table = _quote_identifier(table_name)
+        delete_query = f"DELETE FROM {quoted_table}"
+        await self.execute(delete_query)
+
+    async def __aenter__(self):
+        """
+        Async context manager entry
+
+        :return: self
+        """
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """
+        Async context manager exit
+
+        :return: None
+        """
+        await self.close_connection()
+        return False

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 import os
 from pathlib import Path
 from typing import Tuple
@@ -8,6 +9,8 @@ import aiofiles
 import requests
 
 from wcp_library.graph import REQUEST_TIMEOUT
+
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------------- Mailbox Functions ----------------------------------- #
@@ -29,7 +32,9 @@ def get_mailbox_folders(
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error retrieving mailbox folders: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return []
 
 
@@ -41,9 +46,14 @@ def parse_email_notification(notification: dict) -> Tuple[str, str]:
 
     :param notification: A JSON object containing the notification details.
     :return: The email notification as a JSON object.
+    :raises ValueError: If the resource data is malformed
     """
     resource_data = notification.get("resource", "")
     parts = resource_data.split("/")
+
+    if len(parts) < 4:
+        raise ValueError(f"Malformed resource data: expected at least 4 parts, got {len(parts)} in '{resource_data}'")
+
     return parts[1], parts[3]  # mailbox, message_id
 
 
@@ -60,7 +70,9 @@ def get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | N
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error retrieving email metadata for message {message_id}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -83,7 +95,9 @@ def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> lis
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error retrieving emails from mailbox {mailbox}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return []
 
 
@@ -108,7 +122,9 @@ def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
             for att in data.get("value", [])
         ]
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error retrieving attachments for message {message_id}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return []
 
 
@@ -122,7 +138,7 @@ def save_attachment(source: dict | bytes, location: Path) -> None:
     async def _save(content_bytes: bytes, location: Path) -> None:
         async with aiofiles.open(location, "wb") as f:
             await f.write(content_bytes)
-        print(f"Saved attachment to {location}")
+        logger.info(f"Saved attachment to {location}")
 
     if isinstance(source, dict):
         content_bytes = base64.b64decode(source.get("contentBytes", b""))

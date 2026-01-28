@@ -1,3 +1,4 @@
+import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -5,9 +6,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
-from typing import Optional
 
 from wcp_library.credentials.internet import InternetCredentialManager
+
+# Simple email validation regex
+EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 class MailServer:
@@ -28,10 +31,10 @@ class MailServer:
         recipients: list[str],
         subject: str,
         body: str,
-        body_type: Optional[str] = "plain",
-        attachments: Optional[list[Path]] = None,
-        cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None,
+        body_type: str = "plain",
+        attachments: list[Path] | None = None,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
     ) -> None:
         """
         Send an email with optional HTML formatting and attachments.
@@ -49,10 +52,29 @@ class MailServer:
         if sender.lower() not in self._approved_senders:
             raise ValueError(f"Sender {sender} is not approved to send emails.")
 
+        # Validate email addresses
+        def validate_email(email: str) -> bool:
+            return bool(EMAIL_PATTERN.match(email))
+
+        if not validate_email(sender):
+            raise ValueError(f"Invalid sender email address: {sender}")
+
+        for recipient in recipients:
+            if not validate_email(recipient):
+                raise ValueError(f"Invalid recipient email address: {recipient}")
+
         # Normalize optional parameters
         attachments = attachments or []
         cc = cc or []
         bcc = bcc or []
+
+        for email in cc:
+            if not validate_email(email):
+                raise ValueError(f"Invalid CC email address: {email}")
+
+        for email in bcc:
+            if not validate_email(email):
+                raise ValueError(f"Invalid BCC email address: {email}")
 
         # Create the email container
         msg = MIMEMultipart()
