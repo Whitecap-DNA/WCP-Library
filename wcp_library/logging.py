@@ -1,3 +1,4 @@
+import io
 import logging
 import sys
 from pathlib import Path
@@ -50,10 +51,21 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     )
 
     MIN_LEVEL = console_level
+
+    # Reconfigure stdout to be line-buffered for better ordering with stderr
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, io.UnsupportedOperation):
+        # Fallback for older Python or if reconfigure isn't supported
+        pass
+
     stdout_hdlr = logging.StreamHandler(sys.stdout)
     stderr_hdlr = logging.StreamHandler(sys.stderr)
     stdout_hdlr.setLevel(MIN_LEVEL)
     stderr_hdlr.setLevel(max(MIN_LEVEL, logging.WARNING))
+
+    # Filter to prevent stdout from handling WARNING and above
+    stdout_hdlr.addFilter(lambda record: record.levelno < logging.WARNING)
 
     root_logger.addHandler(stdout_hdlr)
     root_logger.addHandler(stderr_hdlr)
