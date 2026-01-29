@@ -10,30 +10,21 @@ Each class provides methods for performing various web interactions such as navi
 taking screenshots, waiting for elements, clicking buttons, entering text, and more.
 """
 
-import time
 import logging
+import time
 from datetime import datetime
 from io import StringIO
 from typing import List, Optional, Union
 
 import pandas as pd
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    TimeoutException,
-    WebDriverException,
-)
+from selenium.common.exceptions import (NoSuchElementException,
+                                        TimeoutException, WebDriverException)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
 EXECUTION_ERROR_SCREENSHOT_FOLDER = "P:/Python/RPA/Execution Error Screenshots"
-
-
-class BrowserInteractionError(Exception):
-    """
-    Exception raised when an Seemium interaction with the browser fails.
-    """
 
 
 class Interactions:
@@ -521,37 +512,40 @@ class UIInteractions(Interactions):
         )
 
     def text_is_present(
-            self,
-            text: str,
-            element_value: str,
-            locator: Optional[str] = None,
-            text_location: Optional[str] = None,
-            wait_time: Optional[float] = 0,
-        ) -> bool:
-            """
-            Checks whether the specified text is present within a web element.
+        self,
+        text: str,
+        element_value: str,
+        locator: Optional[str] = None,
+        text_location: Optional[str] = None,
+        wait_time: Optional[float] = 0,
+    ) -> WebElement | bool:
+        """
+        Checks whether the specified text is present within a web element.
 
-            :param text: The text to verify within the element.
-            :param element_value: The value used to identify the element.
-            :param locator: The locator type.
-                Options: 'css'(Default), 'id', 'name', 'class', 'tag',
-                'xpath', 'link_text', 'partial_link_text'
-            :param text_location: Where in the element to look for the text.
-                Options: 'anywhere'(Default), 'attribute', 'value'
-            :param wait_time: Time to wait for the condition.
-            :return: True if the text is found within the element, False otherwise.
-            :raises RuntimeError: If the WebDriver is not initialized.
-            """
+        :param text: The text to verify within the element.
+        :param element_value: The value used to identify the element.
+        :param locator: The locator type.
+            Options: 'css'(Default), 'id', 'name', 'class', 'tag',
+            'xpath', 'link_text', 'partial_link_text'
+        :param text_location: Where in the element to look for the text.
+            Options: 'anywhere'(Default), 'attribute', 'value'
+        :param wait_time: Time to wait for the condition.
+        :return: WebElement if the text is found within the element, False otherwise.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
 
-            expected_condition = EC.text_to_be_present_in_element
-            if text_location == "attribute":
-                expected_condition = EC.text_to_be_present_in_element_attribute
-            elif text_location == "value":
-                expected_condition = EC.text_to_be_present_in_element_value
+        expected_condition = EC.text_to_be_present_in_element
+        if text_location == "attribute":
+            expected_condition = EC.text_to_be_present_in_element_attribute
+        elif text_location == "value":
+            expected_condition = EC.text_to_be_present_in_element_value
 
+        try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
                 expected_condition((self._get_locator(locator), element_value), text)
             )
+        except TimeoutException:
+            return False
 
 
 class WEInteractions(Interactions):
@@ -792,3 +786,35 @@ class WEInteractions(Interactions):
             condition(web_element)
         )
         return web_element
+
+    def text_is_present_we(
+        self,
+        web_element: WebElement,
+        text: str,
+        text_location: Optional[str] = None,
+        wait_time: Optional[float] = 0,
+    ) -> WebElement | bool:
+        """
+        Checks whether the specified text is present within a WebElement.
+
+        :param web_element: The WebElement to check for text.
+        :param text: The text to verify within the element.
+        :param text_location: Where in the element to look for the text.
+            Options: 'anywhere'(Default), 'attribute', 'value'
+        :param wait_time: Time to wait for the condition.
+        :return: WebElement if the text is found within the element, False otherwise.
+        :raises RuntimeError: If the WebDriver is not initialized.
+        """
+
+        expected_condition = EC.text_to_be_present_in_element
+        if text_location == "attribute":
+            expected_condition = EC.text_to_be_present_in_element_attribute
+        elif text_location == "value":
+            expected_condition = EC.text_to_be_present_in_element_value
+
+        try:
+            return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
+                expected_condition(web_element, text)
+            )
+        except TimeoutException:
+            return False
