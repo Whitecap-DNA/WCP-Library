@@ -1,8 +1,11 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 import requests
 
 from wcp_library.graph import REQUEST_TIMEOUT
+
+logger = logging.getLogger(__name__)
 
 
 def create_subscription(
@@ -44,9 +47,11 @@ def create_subscription(
         )
         response.raise_for_status()
         data = response.json()
-        print(f"Subscription created with ID: {data.get('id')}")
+        logger.info(f"Subscription created with ID: {data.get('id')}")
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
 
 
 def get_subscription(headers: dict, subscription_id: str) -> dict | None:
@@ -63,7 +68,9 @@ def get_subscription(headers: dict, subscription_id: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -85,11 +92,13 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
             url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-        print(
+        logger.info(
             f"Subscription {subscription_id} has been renewed until {expiration_datetime}"
         )
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
 
 
 def _calculate_expiration_datetime(resource_type: str) -> str:
@@ -160,7 +169,9 @@ def list_subscriptions(headers: dict) -> list[dict] | None:
         response.raise_for_status()
         return response.json().get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
         return None
 
 
@@ -174,9 +185,11 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"Subscription {subscription_id} has been deleted")
+        logger.info(f"Subscription {subscription_id} has been deleted")
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
 
 
 def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
@@ -193,9 +206,11 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     try:
         response = requests.post(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"Subscription {subscription_id} has been reauthorized")
+        logger.info(f"Subscription {subscription_id} has been reauthorized")
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
 
 
 def recreate_subscription(headers: dict, subscription_id: str) -> None:
@@ -231,6 +246,8 @@ def update_notification_url(
             url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-        print(f"Subscription {subscription_id} notification URL has been updated")
+        logger.info(f"Subscription {subscription_id} notification URL has been updated")
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error(f"Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.debug(f"Response text: {e.response.text}")
