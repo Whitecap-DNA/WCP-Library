@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from wcp_library.credentials.internet import InternetCredentialManager
 
@@ -29,7 +29,7 @@ class MailServer:
         subject: str,
         body: str,
         body_type: Optional[str] = "plain",
-        attachments: Optional[list[Path]] = None,
+        attachments: Optional[list[Path | tuple[str, bytes]]] = None,
         cc: Optional[list[str]] = None,
         bcc: Optional[list[str]] = None,
     ) -> None:
@@ -41,7 +41,7 @@ class MailServer:
         :param subject: Subject of the email
         :param body: Email body (plain text or HTML)
         :param body_type: 'plain' for text, 'html' for HTML content
-        :param attachments: List of Path objects for attachments
+        :param attachments: List of Path objects or tuples of (filename, bytes) for attachments
         :param cc: List of CC email addresses
         :param bcc: List of BCC email addresses
         """
@@ -69,19 +69,9 @@ class MailServer:
         msg.attach(MIMEText(body, body_type))
 
         # Attach files if provided
-        if attachments:
-            for attachment in attachments:
-                if not isinstance(attachment, Path):
-                    raise TypeError("attachments must be a list of Path objects")
-                if not attachment.exists() or not attachment.is_file():
-                    raise FileNotFoundError(f"Attachment not found: {attachment}")
-
-                part = MIMEBase("application", "octet-stream")
-                with open(attachment, "rb") as file:
-                    part.set_payload(file.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f"attachment; filename={attachment.name}")
-                msg.attach(part)
+        for attachment in attachments:
+            attachment_part = self._process_attachment(attachment)
+            msg.attach(attachment_part)
 
         # Combine all recipients and remove duplicates
         all_recipients = list(dict.fromkeys([*recipients, *cc, *bcc]))
@@ -91,7 +81,6 @@ class MailServer:
             server.starttls()
             server.login(self._SMTP_USERNAME, self._SMTP_PASSWORD)
             server.sendmail(sender, all_recipients, msg.as_string())
-
 
     def email_reporting(self, subject: str, body: str) -> None:
         """
@@ -108,3 +97,36 @@ class MailServer:
             subject=subject,
             body=body,
         )
+
+    def _process_attachment(
+        self, attachment: Union[Path, tuple[str, bytes]]
+    ) -> MIMEBase:
+        part = MIMEBase("application", "octet-stream")
+
+        if isinstance(attachment, Path):
+            # Handle Path objects
+            if not attachment.exists() or not attachment.is_file():
+                raise FileNotFoundError(f"Attachment not found: {attachment}")
+
+            with open(attachment, "rb") as file:
+                part.set_payload(file.read())
+            filename = attachment.name
+
+        elif isinstance(attachment, tuple) and len(attachment) == 2:
+            # Handle (filename, bytes) tuples
+            filename, file_data = attachment
+            if not isinstance(filename, str):
+                raise TypeError("Filename must be a string")
+            if not isinstance(file_data, bytes):
+                raise TypeError("File data must be bytes")
+            part.set_payload(file_data)
+
+        else:
+            raise TypeError(
+                "Attachments must be a list of Path objects or tuples of (filename, bytes)"
+            )
+
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={filename}")
+
+        return part
