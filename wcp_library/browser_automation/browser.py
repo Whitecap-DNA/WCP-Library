@@ -1,29 +1,44 @@
 """
-This module provides a framework for browser automation using Selenium WebDriver.
+Browser automation framework using Selenium WebDriver.
 
-It defines a base class `BaseSelenium` that encapsulates shared functionality for browser setup,
-option configuration, and lifecycle management. Subclasses for specific browsers—`Chrome`,
-`Firefox`, and `Edge`—extend this base to implement browser-specific driver creation.
+Provides a base class for browser setup, option configuration, and lifecycle
+management, with concrete subclasses for Chrome, Firefox, and Edge. The
+``Browser`` context manager simplifies session creation and teardown.
 
-Additionally, the `Browser` context manager simplifies the use of these classes by managing
-initialization and cleanup of browser sessions.
+Classes
+-------
+BaseSelenium
+    Abstract base class encapsulating shared WebDriver functionality.
+Browser
+    Context manager that pairs a browser subclass with its options.
+Browser.Chrome
+    Chrome-specific WebDriver implementation.
+Browser.Firefox
+    Firefox-specific WebDriver implementation.
+Browser.Edge
+    Edge-specific WebDriver implementation.
 
-Classes:
-    BaseSelenium: Abstract base class for browser automation.
-    Chrome: Chrome-specific WebDriver implementation.
-    Firefox: Firefox-specific WebDriver implementation.
-    Edge: Edge-specific WebDriver implementation.
-    Browser: Context manager for browser session lifecycle.
+Usage
+--------
+browser_options = {
+    "args": ["--headless", "--disable-gpu"],
+    "timeouts": {"pageLoad": 30000, "implicit": 5000},
+}
 
-Usage:
-    with Browser(Firefox) as browser:
-        browser.go_to("https://example.com")
+config = {
+    "headers": {"Authorization": f"Bearer {token}"},
+    "site_id": "site-id",
+}
+
+with Browser(Browser.Firefox, browser_options=browser_options, sharepoint_config=config) as browser:
+    browser.go_to("https://example.com")
+
 """
 
 import inspect
 import logging
 import time
-from typing import Dict, Optional
+from typing import Any
 
 import selenium.common.exceptions as selenium_exceptions
 from selenium import webdriver
@@ -40,31 +55,62 @@ logger = logging.getLogger(__name__)
 
 class BaseSelenium(UIInteractions, WEInteractions):
     """
-    Base class for Selenium-based browser automation.
+    Abstract base class for Selenium-based browser automation.
 
-    This class provides common functionality for initializing and managing Selenium
-    WebDriver instances, as well as adding custom options to the WebDriver.
+    Inherits element-interaction capabilities from ``UIInteractions`` and
+    ``WEInteractions`` and adds browser lifecycle methods (navigation,
+    window management, JavaScript execution, etc.).
 
-    :param browser_options: Dictionary containing custom options for the WebDriver.
-    :param driver: Selenium WebDriver instance (optional, defaults to None).
+    Parameters
+    ----------
+    browser_options : dict or None, optional
+        Custom WebDriver options (headless mode, arguments, download path,
+        timeouts, etc.).
+    sharepoint_config : dict or None, optional
+        Configuration for uploading error screenshots to SharePoint.
+        Expected keys: ``headers``, ``site_id``, ``file_path``.
+
+    Attributes
+    ----------
+    driver : selenium.webdriver.remote.webdriver.WebDriver or None
+        The active WebDriver instance, set after entering the context manager.
+    browser_options : dict
+        Resolved browser options.
+    sharepoint_config : dict or None
+        SharePoint configuration passed to the ``Interactions`` base.
     """
 
     class SeleniumExceptions:
-        """Dynamically collect all Selenium exception classes."""
+        """
+        Container for all Selenium exception classes.
 
-        ALL = tuple(
+        Attributes
+        ----------
+        ALL : tuple of type
+            Every ``Exception`` subclass defined in
+            ``selenium.common.exceptions``.
+        """
+
+        ALL: tuple[type, ...] = tuple(
             obj
             for _, obj in inspect.getmembers(selenium_exceptions)
             if inspect.isclass(obj) and issubclass(obj, Exception)
         )
 
-    def __init__(self, browser_options: dict = None):
+    def __init__(
+        self,
+        browser_options: dict | None = None,
+        sharepoint_config: dict | None = None,
+    ) -> None:
         self.browser_options = browser_options or {}
+        self.sharepoint_config = sharepoint_config
         self.driver = None
+        # Initialise the Interactions base with a None driver; the real
+        # driver is injected in __enter__ once create_driver() succeeds.
+        super().__init__(driver=None, sharepoint_config=sharepoint_config)
 
     def __enter__(self) -> "BaseSelenium":
-        self.driver = self._create_driver()
-        super().__init__(self.driver)
+        self.driver = self.create_driver()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -78,130 +124,181 @@ class BaseSelenium(UIInteractions, WEInteractions):
         if self.driver:
             self.driver.quit()
 
-    def _create_driver(self) -> webdriver:
+    # ------------------------------------------------------------------
+    # Driver creation (abstract)
+    # ------------------------------------------------------------------
+
+    def create_driver(self) -> webdriver.Remote:
         """
-        Abstract method to create a Selenium WebDriver instance.
+        Create a Selenium WebDriver instance.
 
-        This method must be implemented by subclasses to instantiate and return
-        a specific browser WebDriver (e.g., Chrome, Firefox, Edge).
+        Subclasses **must** override this method to return a browser-specific
+        driver (Chrome, Firefox, Edge, etc.).
 
-        :return: Selenium WebDriver instance for the specified browser.
-        :raises: NotImplementedError
+        Returns
+        -------
+        selenium.webdriver.remote.webdriver.WebDriver
+            A newly created WebDriver instance.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, unless overridden by a subclass.
         """
+        raise NotImplementedError("Subclasses must implement this method.")
 
-        raise NotImplementedError("Subclasses must implement this method")
+    # ------------------------------------------------------------------
+    # Option configuration
+    # ------------------------------------------------------------------
 
     def _add_options(
-        self, options: ChromeOptions | FirefoxOptions | EdgeOptions
+        self,
+        options: ChromeOptions | FirefoxOptions | EdgeOptions,
     ) -> None:
         """
-        Add custom options to the Selenium WebDriver.
+        Apply custom options to a browser ``Options`` object.
 
-        This method applies custom options such as headless mode, download paths,
-        and command-line arguments to the WebDriver options.
+        Handles standard Selenium attributes, command-line arguments, and
+        download-path configuration for each supported browser family.
 
-        :param options: ChromeOptions | FirefoxOptions | EdgeOptions
+        Parameters
+        ----------
+        options : ChromeOptions, FirefoxOptions, or EdgeOptions
+            The browser options instance to configure.
         """
-
         if not self.browser_options:
             return
 
-        # Apply standard Selenium options
+        # Standard Selenium attributes
         for key, value in self.browser_options.items():
             if hasattr(options, key) and "args" not in key:
                 setattr(options, key, value)
 
-        # Apply command-line arguments
-        args = self.browser_options.get("args", [])
-        for arg in args:
+        # Command-line arguments
+        for arg in self.browser_options.get("args", []):
             options.add_argument(arg)
 
-        # Handle download path
+        # Download path
         download_path = self.browser_options.get("download_path")
         if download_path:
             if isinstance(options, FirefoxOptions):
                 options.set_preference("browser.download.folderList", 2)
                 options.set_preference("browser.download.dir", str(download_path))
                 options.set_preference(
-                    "browser.helperApps.neverAsk.saveToDisk", "application/octet-stream"
+                    "browser.helperApps.neverAsk.saveToDisk",
+                    "application/octet-stream",
                 )
             elif isinstance(options, (ChromeOptions, EdgeOptions)):
-                prefs = {
-                    "download.default_directory": str(download_path),
-                    "download.prompt_for_download": False,
-                    "directory_upgrade": True,
-                }
-                options.add_experimental_option("prefs", prefs)
+                options.add_experimental_option(
+                    "prefs",
+                    {
+                        "download.default_directory": str(download_path),
+                        "download.prompt_for_download": False,
+                        "directory_upgrade": True,
+                    },
+                )
 
-    def refresh_page(self) -> None:
-        """Refresh the current page.
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
 
-        :raises RuntimeError: If the WebDriver is not initialized.
+    def go_to(self, url: str | URL) -> None:
         """
+        Navigate to the specified URL.
 
-        if self.driver:
-            self.driver.refresh()
-        else:
-            raise RuntimeError("WebDriver is not initialized.")
+        Parameters
+        ----------
+        url : str or yarl.URL
+            The target URL.
 
-    def go_to(self, url: str | URL):
-        """Navigate to the specified URL.
-
-        :param url: The URL to navigate to.
-        :raises RuntimeError: If the WebDriver is not initialized.
+        Raises
+        ------
+        RuntimeError
+            If the WebDriver is not initialised.
         """
-
         if self.driver:
             self.driver.get(str(url))
         else:
             raise RuntimeError("WebDriver is not initialized.")
 
-    def get_url(self) -> str:
-        """Get the current URL of the page.
-
-        :return: The current URL of the page.
-        :raises RuntimeError: If the WebDriver is not initialized.
+    def refresh_page(self) -> None:
         """
+        Refresh the current page.
 
+        Raises
+        ------
+        RuntimeError
+            If the WebDriver is not initialised.
+        """
+        if self.driver:
+            self.driver.refresh()
+        else:
+            raise RuntimeError("WebDriver is not initialized.")
+
+    def get_url(self) -> str:
+        """
+        Return the current page URL.
+
+        Returns
+        -------
+        str
+            The current URL.
+
+        Raises
+        ------
+        RuntimeError
+            If the WebDriver is not initialised.
+        """
         if self.driver:
             return self.driver.current_url
         raise RuntimeError("WebDriver is not initialized.")
 
     def get_title(self) -> str:
-        """Get the title of the current page.
-
-        :return: The title of the current page.
-        :raises RuntimeError: If the WebDriver is not initialized.
         """
+        Return the current page title.
 
+        Returns
+        -------
+        str
+            The page title.
+
+        Raises
+        ------
+        RuntimeError
+            If the WebDriver is not initialised.
+        """
         if self.driver:
             return self.driver.title
         raise RuntimeError("WebDriver is not initialized.")
 
-    def force_wait(self, wait_time: int) -> None:
-        """Forces the browser to wait for the specified time.
-
-        :param wait_time: The amount of time to wait.
-        :return: None
-        """
-
-        time.sleep(wait_time)
+    # ------------------------------------------------------------------
+    # Window management
+    # ------------------------------------------------------------------
 
     def switch_to_window(
-        self, window_handle: Optional[str | list] = None
-    ) -> Optional[Dict[str, list]]:
+        self,
+        window_handle: str | list | None = None,
+    ) -> dict[str, str | list] | None:
         """
-        Switches the browser context to a new window.
+        Switch the browser context to another window.
 
-        If a specific window handle is provided, the driver will switch to that window.
-        Otherwise, it will attempt to switch to a newly opened window that is different
+        When *window_handle* is provided the driver switches directly.
+        Otherwise the method searches for a newly opened window that differs
         from the current one.
 
-        :param window_handle: The handle of the window to switch to. If None, the method will search for a new window handle.
-        :return: A dictionary containing the original window handle, the new window handle, and a list of all window handles at the time of switching.
-        :raises RuntimeError: If the WebDriver is not initialized.
-        """
+        Parameters
+        ----------
+        window_handle : str, list, or None, optional
+            Explicit handle to switch to. If ``None``, the first window
+            that is not the current one is used.
 
+        Returns
+        -------
+        dict or None
+            A dictionary with keys ``'original_window'``, ``'new_window'``,
+            and ``'all_windows'`` when a new window was found, or ``None``
+            if *window_handle* was given or no new window exists.
+        """
         if window_handle:
             self.driver.switch_to.window(window_handle)
             return None
@@ -217,57 +314,108 @@ class BaseSelenium(UIInteractions, WEInteractions):
                     "new_window": new_window,
                     "all_windows": all_windows,
                 }
+
         self.force_wait(1)
         return None
 
-    def close_window(self, window_handle: Optional[str] = None) -> None:
+    def close_window(self, window_handle: str | None = None) -> None:
         """
-        Closes a browser window. If a specific window handle is provided, the driver
-        will close that window. Otherwise, the current window will be closed.
-        :param window_handle: The handle of the window to close. If None, the current window will be closed.
-        :return: None
+        Close a browser window.
+
+        Parameters
+        ----------
+        window_handle : str or None, optional
+            Handle of the window to close. If ``None``, the current window
+            is closed.
         """
         if window_handle:
             current_window = self.driver.current_window_handle
             self.switch_to_window(current_window)
         self.driver.close()
 
-    def execute_script(self, script: str, *args) -> any:
-        """Execute JavaScript code in the browser context.
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
 
-        :param script: The JavaScript code to execute.
-        :param args: Optional arguments to pass to the script (accessible as arguments[0], arguments[1], etc.)
-        :return: The return value of the script execution.
-        :raises RuntimeError: If the WebDriver is not initialized.
-        :raises WebDriverException: If script execution fails.
+    @staticmethod
+    def force_wait(wait_time: int | float) -> None:
+        """
+        Block execution for a fixed duration.
+
+        Parameters
+        ----------
+        wait_time : int or float
+            Seconds to sleep.
+        """
+        time.sleep(wait_time)
+
+    def execute_script(self, script: str, *args) -> Any:
+        """
+        Execute JavaScript in the browser context.
+
+        Parameters
+        ----------
+        script : str
+            JavaScript source code.
+        *args
+            Arguments passed to the script (accessible as
+            ``arguments[0]``, ``arguments[1]``, etc.).
+
+        Returns
+        -------
+        Any
+            The value returned by the script.
+
+        Raises
+        ------
+        RuntimeError
+            If the WebDriver is not initialised.
+        WebDriverException
+            If script execution fails.
         """
         if self.driver:
             return self.driver.execute_script(script, *args)
-        else:
-            raise RuntimeError("WebDriver is not initialized.")
+        raise RuntimeError("WebDriver is not initialized.")
 
 
-class Browser(BaseSelenium):
+class Browser:
     """
-    Class for managing browser automation using Selenium.
+    Context manager for browser session lifecycle.
 
-    This class provides functionality for initializing and managing browser instances
-    using the specified browser class and options.
+    Wraps a browser subclass (``Browser.Firefox``, ``Browser.Chrome``, or
+    ``Browser.Edge``) and manages driver creation and teardown.
 
-    It acts as a context manager, allowing for easy setup and teardown of browser sessions.
+    Parameters
+    ----------
+    browser_class : type
+        The browser subclass to instantiate (e.g. ``Browser.Firefox``).
+    browser_options : dict or None, optional
+        Custom WebDriver options forwarded to the browser subclass.
+    sharepoint_config : dict or None, optional
+        Configuration for uploading error screenshots to SharePoint.
 
-    :param browser_class: The class of the browser to be used (e.g., Firefox, Edge, Chrome).
-    :param browser_options: Dictionary containing custom options for the browser.
+    Examples
+    --------
+    >>> with Browser(Browser.Chrome, {"args": ["--headless"]}) as b:
+    ...     b.go_to("https://example.com")
+    ...     print(b.get_title())
     """
 
-    def __init__(self, browser_class: type, browser_options: dict = None):
-        super().__init__(browser_options)
+    def __init__(
+        self,
+        browser_class: type,
+        browser_options: dict | None = None,
+        sharepoint_config: dict | None = None,
+    ) -> None:
         self.browser_class = browser_class
         self.browser_options = browser_options or {}
-        self.browser_instance = None
+        self.sharepoint_config = sharepoint_config
+        self.browser_instance: BaseSelenium | None = None
 
     def __enter__(self) -> BaseSelenium:
-        self.browser_instance = self.browser_class(self.browser_options)
+        self.browser_instance = self.browser_class(
+            self.browser_options, self.sharepoint_config
+        )
         self.browser_instance.driver = self.browser_instance.create_driver()
         return self.browser_instance
 
@@ -282,44 +430,75 @@ class Browser(BaseSelenium):
         if self.browser_instance and self.browser_instance.driver:
             self.browser_instance.driver.quit()
 
+    # ------------------------------------------------------------------
+    # Browser subclasses
+    # ------------------------------------------------------------------
+
     class Firefox(BaseSelenium):
         """
-        Class for Firefox browser automation using Selenium.
+        Firefox WebDriver implementation.
 
-        This class extends the BaseSelenium class and provides functionality for creating
-        and managing Firefox WebDriver instances.
+        Parameters
+        ----------
+        browser_options : dict or None, optional
+            Custom options forwarded to ``FirefoxOptions``.
         """
 
         def create_driver(self) -> webdriver.Firefox:
-            """Create a Firefox WebDriver instance with specified options."""
+            """
+            Create a Firefox WebDriver instance.
+
+            Returns
+            -------
+            selenium.webdriver.Firefox
+                A configured Firefox driver.
+            """
             options = FirefoxOptions()
             self._add_options(options)
             return webdriver.Firefox(options=options)
 
     class Edge(BaseSelenium):
         """
-        Class for Edge browser automation using Selenium.
+        Edge WebDriver implementation.
 
-        This class extends the BaseSelenium class and provides functionality for creating
-        and managing Edge WebDriver instances.
+        Parameters
+        ----------
+        browser_options : dict or None, optional
+            Custom options forwarded to ``EdgeOptions``.
         """
 
         def create_driver(self) -> webdriver.Edge:
-            """Create an Edge WebDriver instance with specified options."""
+            """
+            Create an Edge WebDriver instance.
+
+            Returns
+            -------
+            selenium.webdriver.Edge
+                A configured Edge driver.
+            """
             options = EdgeOptions()
             self._add_options(options)
             return webdriver.Edge(options=options)
 
     class Chrome(BaseSelenium):
         """
-        Class for Chrome browser automation using Selenium.
+        Chrome WebDriver implementation.
 
-        This class extends the BaseSelenium class and provides functionality for creating
-        and managing Chrome WebDriver instances.
+        Parameters
+        ----------
+        browser_options : dict or None, optional
+            Custom options forwarded to ``ChromeOptions``.
         """
 
         def create_driver(self) -> webdriver.Chrome:
-            """Create a Chrome WebDriver instance with specified options."""
+            """
+            Create a Chrome WebDriver instance.
+
+            Returns
+            -------
+            selenium.webdriver.Chrome
+                A configured Chrome driver.
+            """
             options = ChromeOptions()
             self._add_options(options)
             return webdriver.Chrome(options=options)
