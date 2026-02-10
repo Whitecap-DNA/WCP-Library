@@ -15,7 +15,7 @@ EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 class MailServer:
     def __init__(self, VAULT_API_KEY: str, SMTP2GO_PASSWORD_ID: int):
-        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca"]
+        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
 
         _credential_manager = InternetCredentialManager(VAULT_API_KEY)
         _credentials = _credential_manager.get_credential_from_id(SMTP2GO_PASSWORD_ID)
