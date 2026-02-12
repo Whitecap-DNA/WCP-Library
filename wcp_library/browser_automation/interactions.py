@@ -333,8 +333,7 @@ class UIInteractions(Interactions):
                 )
             )
         except WebDriverException:
-            self._take_error_screenshot()
-            raise
+            []
 
     def get_first_element(
         self,
