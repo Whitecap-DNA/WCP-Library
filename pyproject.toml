@@ -1,17 +1,18 @@
 [project]
 name = "wcp-library"
-version = "1.8.5"
+version = "1.8.6"
 description = "Common utilites for internal development at WCP"
-authors = [{name="Mitch-Petersen", email="mitch.petersen@wcap.ca"}]
+authors = [{ name = "Mitch-Petersen", email = "mitch.petersen@wcap.ca" }]
 readme = "README.md"
 repository = "https://github.com/Whitecap-DNA/WCP-Library"
 documentation = "https://github.com/Whitecap-DNA/WCP-Library/wiki"
-packages = [{include = "wcp_library"}]
+packages = [{ include = "wcp_library" }]
 dynamic = ["dependencies"]
 requires-python = ">=3.12.0"
 
 [tool.poetry.dependencies]
 aiohttp = "^3.13.3"
+aiofiles = "^24.1.0"
 ftputil = "^5.1.0"
 get-gecko-driver = "^1.5.1"
 oracledb = "^3.4.1"
