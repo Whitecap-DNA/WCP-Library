@@ -47,8 +47,9 @@ from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from yarl import URL
 
-from wcp_library.browser_automation.interactions import UIInteractions, WEInteractions
 from wcp_library import retry
+from wcp_library.browser_automation.interactions import (UIInteractions,
+                                                         WEInteractions)
 
 logger = logging.getLogger(__name__)
 
@@ -394,13 +395,9 @@ class Browser:
         Custom WebDriver options forwarded to the browser subclass.
     sharepoint_config : dict or None, optional
         Configuration for uploading error screenshots to SharePoint.
-
-    Examples
-    --------
-    >>> with Browser(Browser.Chrome, {"args": ["--headless"]}) as b:
-    ...     b.go_to("https://example.com")
-    ...     print(b.get_title())
     """
+
+    SeleniumExceptions = BaseSelenium.SeleniumExceptions
 
     def __init__(
         self,
