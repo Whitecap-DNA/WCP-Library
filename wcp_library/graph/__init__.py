@@ -6,8 +6,6 @@ from pathlib import Path
 
 import requests
 
-STORE_PATH = Path(r"P:\Python\MS Graph\.subscriptions\subscriptions_store.json")
-
 REQUEST_TIMEOUT = 30
 RENEWAL_THRESHOLD = 60  # minutes
 
