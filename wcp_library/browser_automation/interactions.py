@@ -333,7 +333,7 @@ class UIInteractions(Interactions):
                 )
             )
         except WebDriverException:
-            []
+            return []
 
     def get_first_element(
         self,
