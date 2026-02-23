@@ -2,12 +2,12 @@ import logging
 import sys
 from pathlib import Path
 
-from wcp_library import application_path
+from wcp_library import APPLICATION_PATH
 
 
 def create_log(file_level: int, console_level: int, iterations: int, project_name: str, mode: str = "w",
                format: str = "%(asctime)s:%(levelname)s:%(module)s:%(filename)s:%(lineno)d:%(message)s",
-               logging_dir: Path = application_path):
+               logging_dir: Path = APPLICATION_PATH):
     """
     Create log file.
 
@@ -21,7 +21,7 @@ def create_log(file_level: int, console_level: int, iterations: int, project_nam
     :param project_name: Name of the project. (Used as the log file name)
     :param mode: Mode to open the log file. (Default: "w")
     :param format: Log Format (Default: "%(asctime)s:%(levelname)s:%(module)s:%(filename)s:%(lineno)d:%(message)s")
-    :param logging_dir: Directory to save log files. (Default: application_path)
+    :param logging_dir: Directory to save log files. (Default: APPLICATION_PATH)
     :return:
     """
 
