@@ -30,6 +30,24 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
 # ----------------------------------- File Functions ----------------------------------- #
 
 
+def list_folder(headers: dict, site_id: str, folder_path: str) -> list | None:
+    """Lists files in a SharePoint folder using the Microsoft Graph API.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder")
+    :return: A list of file/folder metadata objects.
+    """
+    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json().get("value", [])
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        return None
+
+
 def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | None:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
 
