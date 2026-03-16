@@ -85,6 +85,25 @@ def get_file_content(headers: dict, site_id: str, file_path: str) -> bytes | Non
         return None
 
 
+def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes | None:
+    """Retrieves the file content from a SharePoint site using the Microsoft Graph API
+        with drive and item IDs (for files in personal OneDrive).
+
+    :param headers: The headers containing the Authorization token.
+    :param drive_id: The OneDrive drive ID.
+    :param item_id: The OneDrive item ID.
+    :return: The file content as bytes.
+    """
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.content
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        return None
+
+
 def upload_file(
     headers: dict,
     site_id: str,
