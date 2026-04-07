@@ -1,3 +1,4 @@
+import logging
 import re
 import smtplib
 from email import encoders
@@ -12,23 +13,15 @@ from wcp_library.credentials.internet import InternetCredentialManager
 # Simple email validation regex
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
+_SMTP_SERVER: str = "mail.smtp2go.com"
+_SMTP_PORT: int = 587
+
+logger = logging.getLogger(__name__)
+
 
 class MailServer:
-    def __init__(self, VAULT_API_KEY: str, SMTP2GO_PASSWORD_ID: int):
-        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
-
-    Parameters
-    ----------
-    internet_password_key : str
-        API key used to retrieve credentials from the Pleasant Password vault.
-    smtp2go_credential_id : int
-        Vault entry ID for the SMTP2GO account credentials.
-    """
-
-    _SMTP_SERVER: str = "mail.smtp2go.com"
-    _SMTP_PORT: int = 587
-
     def __init__(self, internet_password_key: str, smtp2go_credential_id: int) -> None:
+        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
         logger.debug(
             "Fetching SMTP2GO credentials from vault (entry ID: %d).",
             smtp2go_credential_id,
@@ -51,45 +44,30 @@ class MailServer:
         subject: str,
         body: str,
         body_type: str = "plain",
-        attachments: list[Path] | None = None,
-        cc: list[str] | None = None,
-        bcc: list[str] | None = None,
+        attachments: list[Path | tuple[str, bytes]] | None = None,
+        cc: list[str] | str | None = None,
+        bcc: list[str] | str | None = None,
     ) -> None:
-        """Send an email with optional attachments and CC / BCC recipients.
+        """
+        Send an email with optional attachments and CC / BCC recipients.
 
-        Parameters
-        ----------
-        sender : str
-            Sending address. Must be in the approved-senders list.
-        recipients : list[str] | str
-            One or more primary recipient addresses.
-        subject : str
-            Email subject line.
-        body : str
-            Email body — plain text or HTML depending on *body_type*.
-        body_type : EmailBodyType, optional
-            "plain" (default) or "html".
-        attachments : list[Path | tuple[str, bytes]] | None, optional
-            Files to attach. Each item is either a :class:`pathlib.Path` to an
-            existing file, or a ``(filename, raw_bytes)`` tuple.
-        cc : list[str] | str | None, optional
-            Carbon-copy recipients.
-        bcc : list[str] | str | None, optional
-            Blind carbon-copy recipients.
-
-        Raises
-        ------
-        ValueError
-            If *sender* is not in the approved-senders list, or *body_type* is
-            not "plain" or "html".
-        FileNotFoundError
-            If a :class:`pathlib.Path` attachment does not exist.
-        TypeError
-            If an attachment item has an unexpected type.
+        :param sender: Sending address. Must be in the approved-senders list.
+        :param recipients: One or more primary recipient addresses.
+        :param subject: Email subject line.
+        :param body: Email body — plain text or HTML depending on *body_type*.
+        :param body_type: ``"plain"`` (default) or ``"html"``.
+        :param attachments: Files to attach. Each item is either a :class:`pathlib.Path`
+            to an existing file, or a ``(filename, raw_bytes)`` tuple.
+        :param cc: Carbon-copy recipients.
+        :param bcc: Blind carbon-copy recipients.
+        :raises ValueError: If *sender* is not in the approved-senders list, or
+            *body_type* is not ``"plain"`` or ``"html"``.
+        :raises FileNotFoundError: If a :class:`pathlib.Path` attachment does not exist.
+        :raises TypeError: If an attachment item has an unexpected type.
         """
         logger.debug("Preparing email — subject: '%s', sender: '%s'.", subject, sender)
 
-        if sender.lower() not in _APPROVED_SENDERS:
+        if sender.lower() not in self._approved_senders:
             logger.error(
                 "Rejected send attempt: '%s' is not an approved sender.", sender
             )
@@ -102,12 +80,15 @@ class MailServer:
         if not validate_email(sender):
             raise ValueError(f"Invalid sender email address: {sender}")
 
+        # Normalize parameters
+        recipients = _normalise_addresses(recipients)
+        cc = _normalise_addresses(cc)
+        bcc = _normalise_addresses(bcc)
+        attachments = attachments or []
+
         for recipient in recipients:
             if not validate_email(recipient):
                 raise ValueError(f"Invalid recipient email address: {recipient}")
-
-        # Normalize optional parameters
-        attachments = attachments or []
 
         for email in cc:
             if not validate_email(email):
@@ -116,15 +97,6 @@ class MailServer:
         for email in bcc:
             if not validate_email(email):
                 raise ValueError(f"Invalid BCC email address: {email}")
-
-        # Create the email container
-        msg = MIMEMultipart()
-        msg["From"] = sender
-        msg["To"] = ", ".join(recipients)
-        if cc:
-            msg["Cc"] = ", ".join(cc)
-        msg["Date"] = formatdate(localtime=True)
-        msg["Subject"] = subject
 
         msg = self._build_message(sender, recipients, subject, body, body_type, cc)
 
@@ -145,14 +117,11 @@ class MailServer:
         )
 
     def email_reporting(self, subject: str, body: str) -> None:
-        """Send a plain-text email to the internal Reporting distribution list.
+        """
+        Send a plain-text email to the internal Reporting distribution list.
 
-        Parameters
-        ----------
-        subject : str
-            Email subject line.
-        body : str
-            Plain-text email body.
+        :param subject: Email subject line.
+        :param body: Plain-text email body.
         """
         logger.debug("Sending reporting email — subject: '%s'.", subject)
         self.send_email(
@@ -172,30 +141,19 @@ class MailServer:
         recipients: list[str],
         subject: str,
         body: str,
-        body_type: EmailBodyType,
+        body_type: str,
         cc: list[str],
     ) -> MIMEMultipart:
-        """Construct a :class:`MIMEMultipart` message object.
+        """
+        Construct a :class:`MIMEMultipart` message object.
 
-        Parameters
-        ----------
-        sender : str
-            Sending address.
-        recipients : list[str]
-            Normalised primary recipient list.
-        subject : str
-            Email subject line.
-        body : str
-            Email body text.
-        body_type : EmailBodyType
-            ``"plain"`` or ``"html"``.
-        cc : list[str]
-            Normalised CC recipient list.
-
-        Returns
-        -------
-        MIMEMultipart
-            Fully assembled message, ready for attachments.
+        :param sender: Sending address.
+        :param recipients: Normalised primary recipient list.
+        :param subject: Email subject line.
+        :param body: Email body text.
+        :param body_type: ``"plain"`` or ``"html"``.
+        :param cc: Normalised CC recipient list.
+        :return: Fully assembled message, ready for attachments.
         """
         logger.debug("Building MIME message (body_type: '%s').", body_type)
 
@@ -212,27 +170,19 @@ class MailServer:
         return msg
 
     def _send(self, msg: MIMEMultipart, sender: str, recipients: list[str]) -> None:
-        """Open a fresh SMTP connection and deliver *msg*.
+        """
+        Open a fresh SMTP connection and deliver *msg*.
 
-        Parameters
-        ----------
-        msg : MIMEMultipart
-            The fully constructed message object.
-        sender : str
-            Envelope-from address.
-        recipients : list[str]
-            All envelope-to addresses (To + Cc + Bcc combined).
-
-        Raises
-        ------
-        smtplib.SMTPException
-            Re-raised after logging if any SMTP-level error occurs.
+        :param msg: The fully constructed message object.
+        :param sender: Envelope-from address.
+        :param recipients: All envelope-to addresses (To + Cc + Bcc combined).
+        :raises smtplib.SMTPException: Re-raised after logging if any SMTP-level error occurs.
         """
         logger.debug(
-            "Opening SMTP connection to %s:%d.", self._SMTP_SERVER, self._SMTP_PORT
+            "Opening SMTP connection to %s:%d.", _SMTP_SERVER, _SMTP_PORT
         )
         try:
-            with smtplib.SMTP(self._SMTP_SERVER, self._SMTP_PORT) as server:
+            with smtplib.SMTP(_SMTP_SERVER, _SMTP_PORT) as server:
                 server.starttls()
                 logger.debug(
                     "STARTTLS negotiated; logging in as '%s'.", self._smtp_username
@@ -246,8 +196,8 @@ class MailServer:
             logger.exception(
                 "SMTP error while sending to %s via %s:%d.",
                 recipients,
-                self._SMTP_SERVER,
-                self._SMTP_PORT,
+                _SMTP_SERVER,
+                _SMTP_PORT,
             )
             raise
 
@@ -258,17 +208,11 @@ class MailServer:
 
 
 def _normalise_addresses(addresses: list[str] | str | None) -> list[str]:
-    """Coerce an address argument into a plain list.
+    """
+    Coerce an address argument into a plain list.
 
-    Parameters
-    ----------
-    addresses : list[str] | str | None
-        A single address string, a list of addresses, or ``None``.
-
-    Returns
-    -------
-    list[str]
-        Always a list; empty when *addresses* is ``None``.
+    :param addresses: A single address string, a list of addresses, or ``None``.
+    :return: Always a list; empty when *addresses* is ``None``.
     """
     if addresses is None:
         return []
@@ -277,26 +221,15 @@ def _normalise_addresses(addresses: list[str] | str | None) -> list[str]:
     return list(addresses)
 
 
-def _build_attachment_part(attachment: Attachment) -> MIMEBase:
-    """Create a :class:`MIMEBase` part from a file path or raw-bytes tuple.
+def _build_attachment_part(attachment: Path | tuple[str, bytes]) -> MIMEBase:
+    """
+    Create a :class:`MIMEBase` part from a file path or raw-bytes tuple.
 
-    Parameters
-    ----------
-    attachment : Path | tuple[str, bytes]
-        Either a :class:`pathlib.Path` pointing to an existing file, or a
-        ``(filename, raw_bytes)`` tuple.
-
-    Returns
-    -------
-    MIMEBase
-        Base64-encoded MIME part with ``Content-Disposition`` set.
-
-    Raises
-    ------
-    FileNotFoundError
-        If *attachment* is a :class:`pathlib.Path` that does not exist.
-    TypeError
-        If *attachment* is not a recognised type.
+    :param attachment: Either a :class:`pathlib.Path` pointing to an existing file,
+        or a ``(filename, raw_bytes)`` tuple.
+    :return: Base64-encoded MIME part with ``Content-Disposition`` set.
+    :raises FileNotFoundError: If *attachment* is a :class:`pathlib.Path` that does not exist.
+    :raises TypeError: If *attachment* is not a recognised type.
     """
     part = MIMEBase("application", "octet-stream")
 
