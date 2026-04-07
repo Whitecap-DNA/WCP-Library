@@ -69,7 +69,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         timeouts, etc.).
     sharepoint_config : dict or None, optional
         Configuration for uploading error screenshots to SharePoint.
-        Expected keys: ``headers``, ``site_id``, ``file_path``.
+        Expected keys: ``site_id``, ``app_id``, ``app_secret``, ``tenant_id``
 
     Attributes
     ----------
@@ -103,6 +103,10 @@ class BaseSelenium(UIInteractions, WEInteractions):
         browser_options: dict | None = None,
         sharepoint_config: dict | None = None,
     ) -> None:
+        """Initialize the BaseSelenium instance.
+        Browser options reference: https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Browser-Automation#available-browser-options
+        SharePoint configuration reference: https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Browser-Automation#sharepoint-configuration-optional
+        """
         self.browser_options = browser_options or {}
         self.sharepoint_config = sharepoint_config
         self.driver = None

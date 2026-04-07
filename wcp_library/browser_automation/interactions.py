@@ -19,19 +19,23 @@ import logging
 import time
 from datetime import datetime
 from io import StringIO
+from pathlib import Path
 
 import pandas as pd
-from selenium.common.exceptions import (NoSuchElementException,
-                                        TimeoutException, WebDriverException)
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
+from wcp_library.graph import get_headers
 from wcp_library.graph.sharepoint import upload_file
 
-_SHAREPOINT_ERROR_SCREENSHOT_FOLDER = "/RPA/!Execution Error Screenshots"
-
+logger = logging.getLogger(__name__)
 
 # ======================================================================
 # Base class
@@ -61,19 +65,18 @@ class Interactions:
     ) -> None:
         self.driver = driver
         self.sharepoint_config = sharepoint_config
-        logging.basicConfig(level=logging.INFO)
 
     # ------------------------------------------------------------------
     # Screenshots
     # ------------------------------------------------------------------
 
-    def take_screenshot(self, file_path: str) -> None:
+    def take_screenshot(self, file_path: Path) -> None:
         """
         Save a screenshot of the current page.
 
         Parameters
         ----------
-        file_path : str
+        file_path : Path
             Destination path for the screenshot file.
 
         Raises
@@ -97,15 +100,22 @@ class Interactions:
 
         if self.sharepoint_config:
             screenshot_bytes = self.driver.get_screenshot_as_png()
+            headers = get_headers(
+                self.sharepoint_config["app_id"],
+                self.sharepoint_config["app_secret"],
+                self.sharepoint_config["tenant_id"],
+            )
             upload_file(
-                headers=self.sharepoint_config["headers"],
+                headers=headers,
                 site_id=self.sharepoint_config["site_id"],
-                file_path=_SHAREPOINT_ERROR_SCREENSHOT_FOLDER,
+                file_path="/Automation/Execution Error Screenshots",
                 filename=filename,
                 content=screenshot_bytes,
             )
         else:
-            self.take_screenshot(f"/Error_Screenshots/{filename}")
+            screenshot_folder = Path("Execution Error Screenshots")
+            screenshot_folder.mkdir(exist_ok=True, parents=True)
+            self.take_screenshot(screenshot_folder / filename)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -290,6 +300,13 @@ class UIInteractions(Interactions):
                 )
             )
         except WebDriverException:
+            logger.exception(
+                "Failed to locate element: element_value=%s, locator=%s, expected_condition=%s, wait_time=%s",
+                element_value,
+                locator,
+                expected_condition,
+                wait_time,
+            )
             self._take_error_screenshot()
             raise
 
@@ -333,6 +350,13 @@ class UIInteractions(Interactions):
                 )
             )
         except WebDriverException:
+            logger.exception(
+                "Failed to locate multiple elements: element_value=%s, locator=%s, expected_condition=%s, wait_time=%s",
+                element_value,
+                locator,
+                expected_condition,
+                wait_time,
+            )
             return []
 
     def get_first_element(
@@ -365,10 +389,12 @@ class UIInteractions(Interactions):
             If no element becomes available within *wait_time*.
         """
         normalized: list[tuple[str, str, str]] = []
+
         for item in elements:
             value = item.get("element")
             if not value:
                 raise ValueError(f"Missing 'element' key in: {item}")
+
             normalized.append(
                 (
                     value,
@@ -380,12 +406,13 @@ class UIInteractions(Interactions):
         deadline = time.time() + self._get_wait_time(wait_time)
         while time.time() < deadline:
             for value, loc, cond in normalized:
-                try:
-                    return self.get_element(value, loc, cond)
-                except WebDriverException:
-                    continue
+                el = self.web_page_contains(value, loc, cond)
+                if el:
+                    return el
 
-        raise TimeoutException("No element became available within the timeout.")
+        raise TimeoutException(
+            f"Failed to locate any element. Candidates were: {normalized}"
+        )
 
     # ------------------------------------------------------------------
     # Reading values
