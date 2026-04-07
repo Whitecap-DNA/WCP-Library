@@ -1,3 +1,55 @@
+"""
+Microsoft Graph API - Subscriptions Module
+
+Provides functions for managing Microsoft Graph change notification subscriptions,
+including creation, retrieval, renewal, reauthorization, recreation, and deletion.
+Intended for use within the wcp_library Graph integration layer.
+
+Subscriptions enable push notifications to a configured endpoint when changes occur
+on a watched resource (e.g. new mail, SharePoint file updates, directory changes).
+Each resource type has a Graph-enforced maximum lifetime; this module handles
+expiration calculation automatically based on resource type.
+
+Notification endpoints are derived from a base URL at creation time:
+    - Change notifications:    {notification_url}/api/graph
+    - Lifecycle notifications: {notification_url}/api/lifecycle
+
+Expiration lifetimes by resource type (Graph-enforced maximums):
+    - mail / calendar / contacts:   ~7 days  (10,060 min)
+    - drive / sharepoint:           30 days  (42,300 min)
+    - directory (users/groups):     29 days  (41,760 min)
+    - teams / copilot:              3 days   ( 4,320 min)
+    - security:                     30 days  (43,200 min)
+    - print / todo:                 ~3 days  ( 4,230 min)
+    - presence:                     1 hour   (    60 min)
+    - default (fallback):           1 day    ( 1,440 min)
+
+Resource type is inferred automatically from the resource path string when
+renewing or recreating subscriptions (e.g. "users/.../messages" → "mail").
+
+Typical usage:
+    from wcp_library.graph import get_auth_headers
+    from wcp_library.graph.subscriptions import create_subscription, update_subscription_expiration
+
+    headers = get_auth_headers(...)
+    create_subscription(
+        headers,
+        notification_url="https://my-relay-endpoint.example.com",
+        resource_type="mail",
+        resource="users/user@example.com/messages",
+        change_type="created",
+        client_state="my-secret-state",
+    )
+    update_subscription_expiration(headers, subscription_id="abc-123")
+
+API Reference:
+    https://learn.microsoft.com/en-us/graph/api/resources/change-notifications-api-overview
+
+Dependencies:
+    - requests: Synchronous HTTP client for Graph API calls
+    - wcp_library.graph: Shared constants (REQUEST_TIMEOUT) and auth utilities
+"""
+
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +69,7 @@ def create_subscription(
     client_state: str,
 ) -> None:
     """Creates a subscription to Microsoft Graph resources.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-post-subscriptions
 
     :param headers: The headers containing the Authorization token.
     :param notification_url: The URL to receive notifications.
@@ -47,15 +100,16 @@ def create_subscription(
         )
         response.raise_for_status()
         data = response.json()
-        logger.info(f"Subscription created with ID: {data.get('id')}")
+        logger.info("Subscription created with ID: %s", data.get("id"))
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
 
 
 def get_subscription(headers: dict, subscription_id: str) -> dict | None:
     """Retrieves a subscription by ID.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-get
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to retrieve.
@@ -68,14 +122,15 @@ def get_subscription(headers: dict, subscription_id: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
 def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     """Renews a subscription by updating its expiration date time.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-update
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to renew.
@@ -93,12 +148,14 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
         )
         response.raise_for_status()
         logger.info(
-            f"Subscription {subscription_id} has been renewed until {expiration_datetime}"
+            "Subscription %s has been renewed until %s",
+            subscription_id,
+            expiration_datetime,
         )
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
 
 
 def _calculate_expiration_datetime(resource_type: str) -> str:
@@ -158,6 +215,7 @@ def _get_resource_type(resource: str) -> str:
 
 def list_subscriptions(headers: dict) -> list[dict] | None:
     """List all active subscriptions for the authenticated client.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-list
 
     :param headers: The headers containing the Authorization token.
     :return: A list of dictionaries containing the subscriptions.
@@ -169,9 +227,9 @@ def list_subscriptions(headers: dict) -> list[dict] | None:
         response.raise_for_status()
         return response.json().get("value", [])
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -185,16 +243,17 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        logger.info(f"Subscription {subscription_id} has been deleted")
+        logger.info("Subscription %s has been deleted", subscription_id)
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
 
 
 def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     """
     Reauthorizes a subscription by ID.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-reauthorize
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to reauthorize.
@@ -206,15 +265,16 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     try:
         response = requests.post(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        logger.info(f"Subscription {subscription_id} has been reauthorized")
+        logger.info("Subscription %s has been reauthorized", subscription_id)
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
 
 
 def recreate_subscription(headers: dict, subscription_id: str) -> None:
     """Recreates a subscription by ID.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-post-subscriptions
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to recreate.
@@ -234,6 +294,8 @@ def update_notification_url(
     headers: dict, subscription_id: str, new_notification_url: str
 ) -> None:
     """Changes the notification URL of an existing subscription.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-update
+
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to update.
     :param new_notification_url (str): The new notification URL to set.
@@ -246,8 +308,10 @@ def update_notification_url(
             url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-        logger.info(f"Subscription {subscription_id} notification URL has been updated")
+        logger.info(
+            "Subscription %s notification URL has been updated", subscription_id
+        )
     except requests.RequestException as e:
-        logger.error(f"Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.debug(f"Response text: {e.response.text}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
