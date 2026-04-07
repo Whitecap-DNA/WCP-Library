@@ -1,17 +1,62 @@
+"""
+Microsoft Graph API - SharePoint Module
+
+Provides functions for interacting with Microsoft Graph API SharePoint resources,
+covering site metadata resolution, drive file operations, and list/list item
+management. Intended for use within the wcp_library Graph integration layer.
+
+All functions are synchronous and accept a pre-authenticated headers dict
+containing a valid Bearer token. File content inputs are normalized to bytes
+internally, accepting bytes, bytearray, memoryview, or base64-encoded strings.
+
+Functional areas:
+
+    Sites:
+        - Resolving site metadata and IDs from a SharePoint site home URL.
+
+    Files (Drive Items):
+        - Retrieving file metadata by site-relative path.
+        - Uploading, downloading, moving, copying, renaming, and deleting files.
+        - Conflict behavior on upload is configurable (rename, replace, fail).
+
+    Lists:
+        - Enumerating, creating, and deleting SharePoint lists.
+        - Full CRUD operations on list items, with optional OData filtering.
+
+Typical usage:
+    from wcp_library.graph import get_auth_headers
+    from wcp_library.graph.sharepoint import get_site_metadata, upload_file, create_list_item
+
+    headers = get_auth_headers(...)
+    site = get_site_metadata(headers, "https://contoso.sharepoint.com/sites/DataOps")
+    upload_file(headers, site["id"], "/Shared Documents/Reports", "report.xlsx", content)
+    create_list_item(headers, site["id"], list_id, {"Title": "Q3 Report", "Status": "Draft"})
+
+API Reference:
+    https://learn.microsoft.com/en-us/graph/api/resources/sharepoint
+
+Dependencies:
+    - requests: Synchronous HTTP client for Graph API calls
+    - yarl: URL parsing for extracting host and path from SharePoint site URLs
+    - wcp_library.graph: Shared constants (REQUEST_TIMEOUT) and auth utilities
+"""
+
 import base64
-from pathlib import Path
-from typing import Union
+import logging
 
 import requests
 from yarl import URL
 
 from wcp_library.graph import REQUEST_TIMEOUT
 
+logger = logging.getLogger(__name__)
+
 # ----------------------------------- Site Functions ----------------------------------- #
 
 
 def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
     """Retrieves the site ID from a SharePoint site URL (needs to be the home page)
+    API Reference: https://learn.microsoft.com/en-us/graph/api/site-get
 
     :param headers: The headers containing the Authorization token.
     :param site_home_url: The URL of the SharePoint site.
@@ -24,7 +69,9 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -51,7 +98,7 @@ def list_folder(headers: dict, site_id: str, folder_path: str) -> list | None:
 
 def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | None:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
-
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
@@ -63,7 +110,9 @@ def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | Non
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -109,11 +158,12 @@ def upload_file(
     site_id: str,
     file_path: str,
     filename: str,
-    content: Union[bytes, bytearray, memoryview, str],
+    content: bytes | bytearray | memoryview | str,
     conflict_behavior: str = "rename",
 ) -> dict | None:
     """Saves a file to a SharePoint site using the Microsoft Graph API.
     No need to create parent folders.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -140,14 +190,16 @@ def upload_file(
         response.raise_for_status()
         json_response = response.json()
         parent_path = json_response.get("parentReference", {}).get("path", "")
-        print(f"{filename} has been uploaded to: {parent_path}")
+        logger.info("%s has been uploaded to: %s", filename, parent_path)
         return json_response
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
-def _ensure_bytes(content: Union[bytes, bytearray, memoryview, str]) -> bytes:
+def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
     if isinstance(content, bytes):
         return content
     if isinstance(content, (bytearray, memoryview)):
@@ -161,6 +213,7 @@ def download_file(
     headers: dict, site_id: str, file_path: str, download_folder: Path
 ) -> Path | None:
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -177,7 +230,9 @@ def download_file(
         output_path.write_bytes(response.content)
         return output_path
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -189,6 +244,7 @@ def move_file(
     new_filename: str | None = None,
 ) -> dict | None:
     """Moves a file within a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-move
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -210,12 +266,17 @@ def move_file(
         response.raise_for_status()
         response_json = response.json()
         parent_path = response_json.get("parentReference", {}).get("path", "")
-        print(
-            f"{source_path} has been updated to: {parent_path}/{response_json.get('name', '')}"
+        logger.info(
+            "%s has been updated to: %s/%s",
+            source_path,
+            parent_path,
+            response_json.get("name", ""),
         )
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -227,6 +288,7 @@ def rename_file(
 ) -> dict | None:
     """Moves a file within a SharePoint site using the Microsoft Graph API
         (using the move_file function).
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-move
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -252,6 +314,7 @@ def copy_file(
     new_filename: str | None = None,
 ) -> dict | None:
     """Copies a file within a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-copy
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -272,10 +335,12 @@ def copy_file(
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
-        print(f"{source_path} has been copied to: {destination_path}")
+        logger.info("%s has been copied to: %s", source_path, destination_path)
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -290,6 +355,7 @@ def _build_payload(
 
 def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     """Removes a file from a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-delete
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -301,10 +367,12 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"{file_path} has been removed from SharePoint.")
+        logger.info("%s has been removed from SharePoint.", file_path)
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return False
 
 
@@ -313,6 +381,7 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
 
 def get_lists(headers: dict, site_id: str) -> list[dict]:
     """Retrieves the lists from a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/list-list
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -325,12 +394,15 @@ def get_lists(headers: dict, site_id: str) -> list[dict]:
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return []
 
 
 def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
     """Retrieves the metadata of a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/list-get
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -343,7 +415,9 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -351,6 +425,7 @@ def create_list(
     headers: dict, site_id: str, list_name: str, list_template: str = "genericList"
 ) -> dict | None:
     """Creates a new SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/list-create
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -370,12 +445,15 @@ def create_list(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
 def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     """Removes a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/list-delete
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -386,10 +464,12 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"List {list_id} has been removed from site {site_id}.")
+        logger.info("List %s has been removed from site %s.", list_id, site_id)
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return False
 
 
@@ -397,6 +477,7 @@ def get_list_items(
     headers: dict, site_id: str, list_id: str, odata_filter: str | None = None
 ) -> list[dict]:
     """Retrieves the items from a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-list
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -413,7 +494,9 @@ def get_list_items(
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -421,6 +504,7 @@ def get_list_item_metadata(
     headers: dict, site_id: str, list_id: str, item_id: str
 ) -> dict | None:
     """Retrieves the metadata of a SharePoint list item using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-get
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -434,7 +518,9 @@ def get_list_item_metadata(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -442,6 +528,7 @@ def create_list_item(
     headers: dict, site_id: str, list_id: str, fields: dict
 ) -> dict | None:
     """Creates a new item in a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-create
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -461,7 +548,9 @@ def create_list_item(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -469,6 +558,7 @@ def update_list_item(
     headers: dict, site_id: str, list_id: str, item_id: str, fields: dict
 ) -> dict | None:
     """Updates an existing item in a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-update
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -488,12 +578,15 @@ def update_list_item(
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
 def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) -> bool:
     """Removes an item from a SharePoint list using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-delete
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
@@ -505,8 +598,10 @@ def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) ->
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        print(f"Item {item_id} has been removed from list {list_id}.")
+        logger.info("Item %s has been removed from list %s.", item_id, list_id)
         return True
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return False

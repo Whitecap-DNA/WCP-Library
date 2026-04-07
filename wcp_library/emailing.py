@@ -1,6 +1,4 @@
-"""SMTP email sending utilities backed by SMTP2GO."""
-
-import logging
+import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -11,16 +9,13 @@ from pathlib import Path
 
 from wcp_library.credentials.internet import InternetCredentialManager
 
-logger = logging.getLogger(__name__)
-
-# Senders authorised to use this mail server
-_APPROVED_SENDERS: frozenset[str] = frozenset({"python@wcap.ca", "workflow@wcap.ca"})
-Attachment = Path | tuple[str, bytes]
-EmailBodyType = str
+# Simple email validation regex
+EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 class MailServer:
-    """SMTP email client authenticated via SMTP2GO credentials.
+    def __init__(self, VAULT_API_KEY: str, SMTP2GO_PASSWORD_ID: int):
+        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
 
     Parameters
     ----------
@@ -55,10 +50,10 @@ class MailServer:
         recipients: list[str] | str,
         subject: str,
         body: str,
-        body_type: EmailBodyType = "plain",
-        attachments: list[Attachment] | None = None,
-        cc: list[str] | str | None = None,
-        bcc: list[str] | str | None = None,
+        body_type: str = "plain",
+        attachments: list[Path] | None = None,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
     ) -> None:
         """Send an email with optional attachments and CC / BCC recipients.
 
@@ -100,23 +95,36 @@ class MailServer:
             )
             raise ValueError(f"Sender '{sender}' is not approved to send emails.")
 
-        if body_type not in {"plain", "html"}:
-            logger.error(
-                "Invalid body_type '%s'; must be 'plain' or 'html'.", body_type
-            )
-            raise ValueError("body_type must be 'plain' or 'html'.")
+        # Validate email addresses
+        def validate_email(email: str) -> bool:
+            return bool(EMAIL_PATTERN.match(email))
 
-        recipients = _normalise_addresses(recipients)
-        cc = _normalise_addresses(cc)
-        bcc = _normalise_addresses(bcc)
+        if not validate_email(sender):
+            raise ValueError(f"Invalid sender email address: {sender}")
+
+        for recipient in recipients:
+            if not validate_email(recipient):
+                raise ValueError(f"Invalid recipient email address: {recipient}")
+
+        # Normalize optional parameters
         attachments = attachments or []
 
-        logger.debug(
-            "Recipients — To: %s | Cc: %s | Bcc: %s.",
-            recipients,
-            cc,
-            ["<redacted>" for _ in bcc],  # BCC addresses not exposed in logs
-        )
+        for email in cc:
+            if not validate_email(email):
+                raise ValueError(f"Invalid CC email address: {email}")
+
+        for email in bcc:
+            if not validate_email(email):
+                raise ValueError(f"Invalid BCC email address: {email}")
+
+        # Create the email container
+        msg = MIMEMultipart()
+        msg["From"] = sender
+        msg["To"] = ", ".join(recipients)
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+        msg["Date"] = formatdate(localtime=True)
+        msg["Subject"] = subject
 
         msg = self._build_message(sender, recipients, subject, body, body_type, cc)
 
