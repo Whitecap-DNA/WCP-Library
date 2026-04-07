@@ -7,9 +7,10 @@ from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator
 
+import cryptography.hazmat.primitives.kdf.pbkdf2
+
 # PyInstaller import
 import pip_system_certs.wrapt_requests
-import cryptography.hazmat.primitives.kdf.pbkdf2
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,10 @@ JITTER = 3
 
 # Application Path
 if getattr(sys, "frozen", False):
-    application_path = sys.executable
-    application_path = Path(application_path).parent
+    APPLICATION_PATH = sys.executable
+    APPLICATION_PATH = Path(APPLICATION_PATH).parent
 else:
-    application_path = Path().absolute()
+    APPLICATION_PATH = Path().absolute()
 
 
 def divide_chunks(list_obj: list, size: int) -> Generator:
@@ -49,7 +50,8 @@ def retry(
     jitter: int = JITTER,
 ) -> Callable:
     """
-    Decorator to retry a synchronous function on a specified exception with exponential backoff and jitter.
+    Decorator to retry a function on a specified exception with exponential backoff and jitter.
+    Automatically handles both sync and async functions.
 
     :param exceptions: Tuple of exception types to catch and retry on.
     :param max_attempts: Maximum number of retry attempts.
@@ -128,4 +130,5 @@ def async_retry(
                     wait_time *= backoff
             return None
         return wrapper
+
     return decorator

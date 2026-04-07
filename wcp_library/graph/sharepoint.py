@@ -78,6 +78,24 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
 # ----------------------------------- File Functions ----------------------------------- #
 
 
+def list_folder(headers: dict, site_id: str, folder_path: str) -> list | None:
+    """Lists files in a SharePoint folder using the Microsoft Graph API.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder")
+    :return: A list of file/folder metadata objects.
+    """
+    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json().get("value", [])
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        return None
+
+
 def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | None:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get
@@ -95,6 +113,43 @@ def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | Non
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
             logger.debug("Response text: %s", e.response.text)
+        return None
+
+
+def get_file_content(headers: dict, site_id: str, file_path: str) -> bytes | None:
+    """Retrieves the file content from a SharePoint site using the Microsoft Graph API.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :return: The file content as bytes.
+    """
+    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.content
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        return None
+
+
+def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes | None:
+    """Retrieves the file content from a SharePoint site using the Microsoft Graph API
+        with drive and item IDs (for files in personal OneDrive).
+
+    :param headers: The headers containing the Authorization token.
+    :param drive_id: The OneDrive drive ID.
+    :param item_id: The OneDrive item ID.
+    :return: The file content as bytes.
+    """
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+    try:
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.content
+    except requests.RequestException as e:
+        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
         return None
 
 
@@ -154,7 +209,9 @@ def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
     raise TypeError(f"Unsupported content type: {type(content).__name__}")
 
 
-def download_file(headers: dict, site_id: str, file_path: str) -> bytes | None:
+def download_file(
+    headers: dict, site_id: str, file_path: str, download_folder: Path
+) -> Path | None:
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
 
@@ -162,13 +219,16 @@ def download_file(headers: dict, site_id: str, file_path: str) -> bytes | None:
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file to download
         (e.g. "/Shared Documents/My Folder/file.txt")
-    :return: The content of the file as bytes.
+    :param download_folder: The local folder path to save the file to. Defaults to current directory.
+    :return: The path to the downloaded file, or None if the download failed.
     """
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        return response.content
+        output_path = download_folder / Path(file_path).name
+        output_path.write_bytes(response.content)
+        return output_path
     except requests.RequestException as e:
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
