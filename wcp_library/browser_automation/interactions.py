@@ -108,7 +108,7 @@ class Interactions:
             upload_file(
                 headers=headers,
                 site_id=self.sharepoint_config["site_id"],
-                file_path="/Automation/Execution Error Screenshots",
+                file_path="/Automation/.Execution Error Screenshots",
                 filename=filename,
                 content=screenshot_bytes,
             )

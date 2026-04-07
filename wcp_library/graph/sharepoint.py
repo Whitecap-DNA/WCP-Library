@@ -43,6 +43,7 @@ Dependencies:
 
 import base64
 import logging
+from pathlib import Path
 
 import requests
 from yarl import URL
