@@ -350,13 +350,6 @@ class UIInteractions(Interactions):
                 )
             )
         except WebDriverException:
-            logger.exception(
-                "Failed to locate multiple elements: element_value=%s, locator=%s, expected_condition=%s, wait_time=%s",
-                element_value,
-                locator,
-                expected_condition,
-                wait_time,
-            )
             return []
 
     def get_first_element(
