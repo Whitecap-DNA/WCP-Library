@@ -66,6 +66,37 @@ def _drive_base(site_id: str, drive_id: str | None) -> str:
     return f"{_GRAPH_ROOT}/sites/{site_id}/drive"
 
 
+def _iter_pages(
+    url: str,
+    headers: dict,
+    page_size: int | None = None,
+) -> list[dict]:
+    """GET ``url`` and follow ``@odata.nextLink`` until exhausted.
+
+    Returns the concatenated ``value`` arrays from every page. Raises
+    ``requests.RequestException`` on HTTP failure — callers wrap this in
+    their own try/except to preserve their existing error-reporting style
+    (some use ``print``, some use ``logger``).
+
+    :param page_size: If given, appended as ``$top`` on the first request.
+        Graph echoes this on subsequent ``@odata.nextLink`` URLs, so we only
+        need to set it once.
+    """
+    if page_size is not None:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}$top={page_size}"
+
+    items: list[dict] = []
+    next_url: str | None = url
+    while next_url:
+        response = requests.get(next_url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        items.extend(data.get("value", []))
+        next_url = data.get("@odata.nextLink")
+    return items
+
+
 # ----------------------------------- Site Functions ----------------------------------- #
 
 
