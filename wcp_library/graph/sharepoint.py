@@ -295,7 +295,12 @@ def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
 
 
 def download_file(
-    headers: dict, site_id: str, file_path: str, download_folder: Path
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    download_folder: Path,
+    *,
+    drive_id: str | None = None,
 ) -> Path | None:
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
@@ -305,9 +310,11 @@ def download_file(
     :param file_path: The path of the file to download
         (e.g. "/Shared Documents/My Folder/file.txt")
     :param download_folder: The local folder path to save the file to. Defaults to current directory.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The path to the downloaded file, or None if the download failed.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
