@@ -52,6 +52,20 @@ from wcp_library.graph import REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
+_GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
+
+
+def _drive_base(site_id: str, drive_id: str | None) -> str:
+    """Return the Graph URL prefix for file operations.
+
+    If ``drive_id`` is provided it wins over ``site_id`` (targets a specific
+    document library). Otherwise the site's default drive is used.
+    """
+    if drive_id:
+        return f"{_GRAPH_ROOT}/drives/{drive_id}"
+    return f"{_GRAPH_ROOT}/sites/{site_id}/drive"
+
+
 # ----------------------------------- Site Functions ----------------------------------- #
 
 
@@ -64,7 +78,7 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
     :return: The site metadata as a JSON object.
     """
     url = URL(site_home_url)
-    url = f"https://graph.microsoft.com/v1.0/sites/{url.host}:{url.path}"
+    url = f"{_GRAPH_ROOT}/sites/{url.host}:{url.path}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
