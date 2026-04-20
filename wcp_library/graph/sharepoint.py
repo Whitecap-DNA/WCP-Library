@@ -121,6 +121,54 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
         return None
 
 
+def get_drives(
+    headers: dict,
+    site_id: str,
+    *,
+    page_size: int | None = None,
+) -> list[dict] | None:
+    """List document libraries (drives) on a SharePoint site.
+
+    API Reference: https://learn.microsoft.com/en-us/graph/api/drive-list
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of drive metadata objects across all pages, or ``None``
+        on error.
+    """
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/drives"
+    try:
+        return _iter_pages(url, headers, page_size=page_size)
+    except requests.RequestException as e:
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
+        return None
+
+
+def get_drive_id_by_name(
+    headers: dict,
+    site_id: str,
+    drive_name: str,
+) -> str | None:
+    """Resolve a drive ID by display name. Case-sensitive exact match on
+    ``name``. Returns ``None`` if the drive is not found or the request fails.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param drive_name: The display name of the drive.
+    :return: The drive ID, or ``None`` if no match.
+    """
+    drives = get_drives(headers, site_id)
+    if drives is None:
+        return None
+    for drive in drives:
+        if drive.get("name") == drive_name:
+            return drive.get("id")
+    return None
+
+
 # ----------------------------------- File Functions ----------------------------------- #
 
 
