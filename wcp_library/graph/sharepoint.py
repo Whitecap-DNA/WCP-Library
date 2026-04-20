@@ -464,7 +464,13 @@ def _build_payload(
     return payload
 
 
-def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
+def remove_file(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> bool:
     """Removes a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-delete
 
@@ -472,9 +478,11 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file to remove
         (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: True if the file was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
