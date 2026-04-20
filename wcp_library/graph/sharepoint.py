@@ -278,7 +278,9 @@ def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes 
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
