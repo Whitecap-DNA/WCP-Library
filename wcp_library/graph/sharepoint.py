@@ -187,21 +187,31 @@ def get_file_metadata(
         return None
 
 
-def get_file_content(headers: dict, site_id: str, file_path: str) -> bytes | None:
+def get_file_content(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> bytes | None:
     """Retrieves the file content from a SharePoint site using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The file content as bytes.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
