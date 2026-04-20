@@ -437,9 +437,15 @@ def copy_file(
 
 
 def _build_payload(
-    destination_path: str | None, new_filename: str | None = None
+    destination_path: str | None,
+    new_filename: str | None = None,
+    drive_id: str | None = None,
 ) -> dict:
-    payload = {"parentReference": {"path": f"/drive/root:{destination_path}"}}
+    if drive_id:
+        parent_path = f"/drives/{drive_id}/root:{destination_path}"
+    else:
+        parent_path = f"/drive/root:{destination_path}"
+    payload = {"parentReference": {"path": parent_path}}
     if new_filename:
         payload["name"] = new_filename
     return payload
