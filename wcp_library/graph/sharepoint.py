@@ -413,6 +413,8 @@ def copy_file(
     source_path: str,
     destination_path: str,
     new_filename: str | None = None,
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Copies a file within a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-copy
@@ -424,10 +426,12 @@ def copy_file(
     :param destination_path: The destination folder path
         (e.g. "/Shared Documents/Other Folder")
     :param new_filename: The new name for the copied file. If None, the original name is kept.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{source_path}:/copy"
-    payload = _build_payload(destination_path, new_filename)
+    url = f"{_drive_base(site_id, drive_id)}/root:{source_path}:/copy"
+    payload = _build_payload(destination_path, new_filename, drive_id=drive_id)
     try:
         response = requests.post(
             url,
