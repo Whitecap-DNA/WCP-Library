@@ -272,7 +272,7 @@ def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes 
     :param item_id: The OneDrive item ID.
     :return: The file content as bytes.
     """
-    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+    url = f"{_GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -584,7 +584,7 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
     :param list_id: The ID of the SharePoint list.
     :return: The list metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -608,7 +608,7 @@ def create_list(
     :param list_template: The template for the new SharePoint list. Default is "genericList".
     :return: The created list metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists"
     payload = {"displayName": list_name, "list": {"template": list_template}}
     try:
         response = requests.post(
@@ -635,7 +635,7 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     :param list_id: The ID of the SharePoint list.
     :return: True if the list was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -693,7 +693,7 @@ def get_list_item_metadata(
     :param item_id: The ID of the SharePoint list item.
     :return: The list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -717,7 +717,7 @@ def create_list_item(
     :param fields: A dictionary containing the field values for the new list item.
     :return: The created list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
     payload = {"fields": fields}
     try:
         response = requests.post(
@@ -748,7 +748,7 @@ def update_list_item(
     :param fields: A dictionary containing the updated field values for the list item.
     :return: The updated list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
     try:
         response = requests.patch(
             url,
@@ -775,7 +775,7 @@ def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) ->
     :param item_id: The ID of the SharePoint list item.
     :return: True if the item was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
