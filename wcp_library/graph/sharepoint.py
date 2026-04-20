@@ -241,6 +241,8 @@ def upload_file(
     filename: str,
     content: bytes | bytearray | memoryview | str,
     conflict_behavior: str = "rename",
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Saves a file to a SharePoint site using the Microsoft Graph API.
     No need to create parent folders.
@@ -254,10 +256,12 @@ def upload_file(
         or base64-encoded string (from Graph API).
     :param conflict_behavior: The behavior when a file with the same name already exists.
         Options are "rename", "replace", or "fail". Default is "rename".
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
     url = (
-        f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:"
+        f"{_drive_base(site_id, drive_id)}/root:"
         f"{file_path}/{filename}:/content"
         f"?@microsoft.graph.conflictBehavior={conflict_behavior}"
     )
