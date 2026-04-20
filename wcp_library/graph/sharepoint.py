@@ -124,21 +124,38 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
 # ----------------------------------- File Functions ----------------------------------- #
 
 
-def list_folder(headers: dict, site_id: str, folder_path: str) -> list | None:
+def list_folder(
+    headers: dict,
+    site_id: str,
+    folder_path: str,
+    *,
+    drive_id: str | None = None,
+    page_size: int | None = None,
+) -> list | None:
     """Lists files in a SharePoint folder using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder")
-    :return: A list of file/folder metadata objects.
+    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder").
+        Use ``"/"`` or ``""`` to list the root of the drive.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
+    :param page_size: Optional ``$top`` value passed on the initial request
+        to tune Graph's page size. Default: let Graph decide.
+    :return: A list of file/folder metadata objects across all pages, or
+        ``None`` on error.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+    base = _drive_base(site_id, drive_id)
+    if folder_path in ("", "/"):
+        url = f"{base}/root/children"
+    else:
+        url = f"{base}/root:{folder_path}:/children"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        return response.json().get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
