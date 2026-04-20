@@ -649,25 +649,31 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
 
 
 def get_list_items(
-    headers: dict, site_id: str, list_id: str, odata_filter: str | None = None
-) -> list[dict]:
+    headers: dict,
+    site_id: str,
+    list_id: str,
+    odata_filter: str | None = None,
+    *,
+    page_size: int | None = None,
+) -> list[dict] | None:
     """Retrieves the items from a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-list
+
+    Follows ``@odata.nextLink`` to completion.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
-    :param filter: An optional OData filter string to filter the list items.
-    :return: A list of SharePoint list items as JSON objects.
+    :param odata_filter: An optional OData filter string to filter the list items.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of SharePoint list items as JSON objects across all pages,
+        or ``None`` on error.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
     if odata_filter:
         url += f"?$filter={odata_filter}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
