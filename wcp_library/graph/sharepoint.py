@@ -159,15 +159,23 @@ def list_folder(
         return None
 
 
-def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | None:
+def get_file_metadata(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> dict | None:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The file metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
