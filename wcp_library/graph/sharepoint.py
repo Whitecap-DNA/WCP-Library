@@ -381,6 +381,8 @@ def rename_file(
     site_id: str,
     file_path: str,
     new_filename: str,
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Moves a file within a SharePoint site using the Microsoft Graph API
         (using the move_file function).
@@ -391,6 +393,8 @@ def rename_file(
     :param file_path: The current path of the file to rename
         (e.g. "/Shared Documents/My Folder/file.txt")
     :param new_filename: The new name for the file.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
     return move_file(
@@ -399,6 +403,7 @@ def rename_file(
         file_path,
         destination_path=file_path,
         new_filename=new_filename,
+        drive_id=drive_id,
     )
 
 
