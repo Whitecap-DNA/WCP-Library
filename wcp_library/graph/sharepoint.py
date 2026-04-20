@@ -52,6 +52,51 @@ from wcp_library.graph import REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
+_GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
+
+
+def _drive_base(site_id: str, drive_id: str | None) -> str:
+    """Return the Graph URL prefix for file operations.
+
+    If ``drive_id`` is provided it wins over ``site_id`` (targets a specific
+    document library). Otherwise the site's default drive is used.
+    """
+    if drive_id:
+        return f"{_GRAPH_ROOT}/drives/{drive_id}"
+    return f"{_GRAPH_ROOT}/sites/{site_id}/drive"
+
+
+def _iter_pages(
+    url: str,
+    headers: dict,
+    page_size: int | None = None,
+) -> list[dict]:
+    """GET ``url`` and follow ``@odata.nextLink`` until exhausted.
+
+    Returns the concatenated ``value`` arrays from every page. Raises
+    ``requests.RequestException`` on HTTP failure — callers wrap this in
+    their own try/except to preserve their existing error-reporting style
+    (some use ``print``, some use ``logger``).
+
+    :param page_size: If given, appended as ``$top`` on the first request.
+        Graph echoes this on subsequent ``@odata.nextLink`` URLs, so we only
+        need to set it once.
+    """
+    if page_size is not None:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}$top={page_size}"
+
+    items: list[dict] = []
+    next_url: str | None = url
+    while next_url:
+        response = requests.get(next_url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        items.extend(data.get("value", []))
+        next_url = data.get("@odata.nextLink")
+    return items
+
+
 # ----------------------------------- Site Functions ----------------------------------- #
 
 
@@ -64,7 +109,7 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
     :return: The site metadata as a JSON object.
     """
     url = URL(site_home_url)
-    url = f"https://graph.microsoft.com/v1.0/sites/{url.host}:{url.path}"
+    url = f"{_GRAPH_ROOT}/sites/{url.host}:{url.path}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -74,38 +119,111 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
         if hasattr(e, "response") and e.response is not None:
             logger.debug("Response text: %s", e.response.text)
         return None
+
+
+def get_drives(
+    headers: dict,
+    site_id: str,
+    *,
+    page_size: int | None = None,
+) -> list[dict] | None:
+    """List document libraries (drives) on a SharePoint site.
+
+    API Reference: https://learn.microsoft.com/en-us/graph/api/drive-list
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of drive metadata objects across all pages, or ``None``
+        on error.
+    """
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/drives"
+    try:
+        return _iter_pages(url, headers, page_size=page_size)
+    except requests.RequestException as e:
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
+        return None
+
+
+def get_drive_id_by_name(
+    headers: dict,
+    site_id: str,
+    drive_name: str,
+) -> str | None:
+    """Resolve a drive ID by display name. Case-sensitive exact match on
+    ``name``. Returns ``None`` if the drive is not found or the request fails.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param drive_name: The display name of the drive.
+    :return: The drive ID, or ``None`` if no match.
+    """
+    drives = get_drives(headers, site_id)
+    if drives is None:
+        return None
+    for drive in drives:
+        if drive.get("name") == drive_name:
+            return drive.get("id")
+    return None
 
 
 # ----------------------------------- File Functions ----------------------------------- #
 
 
-def list_folder(headers: dict, site_id: str, folder_path: str) -> list | None:
+def list_folder(
+    headers: dict,
+    site_id: str,
+    folder_path: str,
+    *,
+    drive_id: str | None = None,
+    page_size: int | None = None,
+) -> list | None:
     """Lists files in a SharePoint folder using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder")
-    :return: A list of file/folder metadata objects.
+    :param folder_path: The folder path (e.g. "/Shared Documents/My Folder").
+        Use ``"/"`` or ``""`` to list the root of the drive.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
+    :param page_size: Optional ``$top`` value passed on the initial request
+        to tune Graph's page size. Default: let Graph decide.
+    :return: A list of file/folder metadata objects across all pages, or
+        ``None`` on error.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{folder_path}:/children"
+    base = _drive_base(site_id, drive_id)
+    if folder_path in ("", "/"):
+        url = f"{base}/root/children"
+    else:
+        url = f"{base}/root:{folder_path}:/children"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        return response.json().get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
-def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | None:
+def get_file_metadata(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> dict | None:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The file metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -117,21 +235,31 @@ def get_file_metadata(headers: dict, site_id: str, file_path: str) -> dict | Non
         return None
 
 
-def get_file_content(headers: dict, site_id: str, file_path: str) -> bytes | None:
+def get_file_content(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> bytes | None:
     """Retrieves the file content from a SharePoint site using the Microsoft Graph API.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The file content as bytes.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -144,13 +272,15 @@ def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes 
     :param item_id: The OneDrive item ID.
     :return: The file content as bytes.
     """
-    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+    url = f"{_GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        print(f"Error: {e}\nResponse: {getattr(e.response, 'text', '')}")
+        logger.error("Error: %s", e)
+        if hasattr(e, "response") and e.response is not None:
+            logger.debug("Response text: %s", e.response.text)
         return None
 
 
@@ -161,6 +291,8 @@ def upload_file(
     filename: str,
     content: bytes | bytearray | memoryview | str,
     conflict_behavior: str = "rename",
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Saves a file to a SharePoint site using the Microsoft Graph API.
     No need to create parent folders.
@@ -174,10 +306,12 @@ def upload_file(
         or base64-encoded string (from Graph API).
     :param conflict_behavior: The behavior when a file with the same name already exists.
         Options are "rename", "replace", or "fail". Default is "rename".
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
     url = (
-        f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:"
+        f"{_drive_base(site_id, drive_id)}/root:"
         f"{file_path}/{filename}:/content"
         f"?@microsoft.graph.conflictBehavior={conflict_behavior}"
     )
@@ -211,7 +345,12 @@ def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
 
 
 def download_file(
-    headers: dict, site_id: str, file_path: str, download_folder: Path
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    download_folder: Path,
+    *,
+    drive_id: str | None = None,
 ) -> Path | None:
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
@@ -221,9 +360,11 @@ def download_file(
     :param file_path: The path of the file to download
         (e.g. "/Shared Documents/My Folder/file.txt")
     :param download_folder: The local folder path to save the file to. Defaults to current directory.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The path to the downloaded file, or None if the download failed.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}:/content"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -243,6 +384,8 @@ def move_file(
     source_path: str,
     destination_path: str,
     new_filename: str | None = None,
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Moves a file within a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-move
@@ -253,10 +396,12 @@ def move_file(
         (e.g. "/Shared Documents/My Folder/file.txt")
     :param destination_path: The destination folder path (e.g. "/Shared Documents/Other Folder")
     :param new_filename: The new name for the file. If None, the original name is kept.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{source_path}"
-    payload = _build_payload(destination_path, new_filename)
+    url = f"{_drive_base(site_id, drive_id)}/root:{source_path}"
+    payload = _build_payload(destination_path, new_filename, drive_id=drive_id)
     try:
         response = requests.patch(
             url,
@@ -286,6 +431,8 @@ def rename_file(
     site_id: str,
     file_path: str,
     new_filename: str,
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Moves a file within a SharePoint site using the Microsoft Graph API
         (using the move_file function).
@@ -296,6 +443,8 @@ def rename_file(
     :param file_path: The current path of the file to rename
         (e.g. "/Shared Documents/My Folder/file.txt")
     :param new_filename: The new name for the file.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
     return move_file(
@@ -304,6 +453,7 @@ def rename_file(
         file_path,
         destination_path=file_path,
         new_filename=new_filename,
+        drive_id=drive_id,
     )
 
 
@@ -313,6 +463,8 @@ def copy_file(
     source_path: str,
     destination_path: str,
     new_filename: str | None = None,
+    *,
+    drive_id: str | None = None,
 ) -> dict | None:
     """Copies a file within a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-copy
@@ -324,10 +476,12 @@ def copy_file(
     :param destination_path: The destination folder path
         (e.g. "/Shared Documents/Other Folder")
     :param new_filename: The new name for the copied file. If None, the original name is kept.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{source_path}:/copy"
-    payload = _build_payload(destination_path, new_filename)
+    url = f"{_drive_base(site_id, drive_id)}/root:{source_path}:/copy"
+    payload = _build_payload(destination_path, new_filename, drive_id=drive_id)
     try:
         response = requests.post(
             url,
@@ -346,15 +500,27 @@ def copy_file(
 
 
 def _build_payload(
-    destination_path: str | None, new_filename: str | None = None
+    destination_path: str | None,
+    new_filename: str | None = None,
+    drive_id: str | None = None,
 ) -> dict:
-    payload = {"parentReference": {"path": f"/drive/root:{destination_path}"}}
+    if drive_id:
+        parent_path = f"/drives/{drive_id}/root:{destination_path}"
+    else:
+        parent_path = f"/drive/root:{destination_path}"
+    payload = {"parentReference": {"path": parent_path}}
     if new_filename:
         payload["name"] = new_filename
     return payload
 
 
-def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
+def remove_file(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    *,
+    drive_id: str | None = None,
+) -> bool:
     """Removes a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-delete
 
@@ -362,9 +528,11 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file to remove
         (e.g. "/Shared Documents/My Folder/file.txt")
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
     :return: True if the file was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:{file_path}"
+    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -380,20 +548,26 @@ def remove_file(headers: dict, site_id: str, file_path: str) -> bool:
 # ----------------------------------- List Functions ----------------------------------- #
 
 
-def get_lists(headers: dict, site_id: str) -> list[dict]:
+def get_lists(
+    headers: dict,
+    site_id: str,
+    *,
+    page_size: int | None = None,
+) -> list[dict]:
     """Retrieves the lists from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/list-list
 
+    Follows ``@odata.nextLink`` to completion. Returns ``[]`` on error
+    (unchanged contract).
+
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :return: A list of SharePoint lists as JSON objects.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of SharePoint lists as JSON objects across all pages.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
@@ -410,7 +584,7 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
     :param list_id: The ID of the SharePoint list.
     :return: The list metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -434,7 +608,7 @@ def create_list(
     :param list_template: The template for the new SharePoint list. Default is "genericList".
     :return: The created list metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists"
     payload = {"displayName": list_name, "list": {"template": list_template}}
     try:
         response = requests.post(
@@ -461,7 +635,7 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     :param list_id: The ID of the SharePoint list.
     :return: True if the list was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -475,25 +649,31 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
 
 
 def get_list_items(
-    headers: dict, site_id: str, list_id: str, odata_filter: str | None = None
-) -> list[dict]:
+    headers: dict,
+    site_id: str,
+    list_id: str,
+    odata_filter: str | None = None,
+    *,
+    page_size: int | None = None,
+) -> list[dict] | None:
     """Retrieves the items from a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-list
+
+    Follows ``@odata.nextLink`` to completion.
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
-    :param filter: An optional OData filter string to filter the list items.
-    :return: A list of SharePoint list items as JSON objects.
+    :param odata_filter: An optional OData filter string to filter the list items.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of SharePoint list items as JSON objects across all pages,
+        or ``None`` on error.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
     if odata_filter:
         url += f"?$filter={odata_filter}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
@@ -513,7 +693,7 @@ def get_list_item_metadata(
     :param item_id: The ID of the SharePoint list item.
     :return: The list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields"
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
@@ -537,7 +717,7 @@ def create_list_item(
     :param fields: A dictionary containing the field values for the new list item.
     :return: The created list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
     payload = {"fields": fields}
     try:
         response = requests.post(
@@ -568,7 +748,7 @@ def update_list_item(
     :param fields: A dictionary containing the updated field values for the list item.
     :return: The updated list item metadata as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
     try:
         response = requests.patch(
             url,
@@ -595,7 +775,7 @@ def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) ->
     :param item_id: The ID of the SharePoint list item.
     :return: True if the item was removed successfully, False otherwise.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items/{item_id}"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}"
     try:
         response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
