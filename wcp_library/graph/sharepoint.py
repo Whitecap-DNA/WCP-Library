@@ -548,20 +548,26 @@ def remove_file(
 # ----------------------------------- List Functions ----------------------------------- #
 
 
-def get_lists(headers: dict, site_id: str) -> list[dict]:
+def get_lists(
+    headers: dict,
+    site_id: str,
+    *,
+    page_size: int | None = None,
+) -> list[dict]:
     """Retrieves the lists from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/list-list
 
+    Follows ``@odata.nextLink`` to completion. Returns ``[]`` on error
+    (unchanged contract).
+
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :return: A list of SharePoint lists as JSON objects.
+    :param page_size: Optional ``$top`` override.
+    :return: A list of SharePoint lists as JSON objects across all pages.
     """
-    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
+    url = f"{_GRAPH_ROOT}/sites/{site_id}/lists"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("value", [])
+        return _iter_pages(url, headers, page_size=page_size)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
         if hasattr(e, "response") and e.response is not None:
