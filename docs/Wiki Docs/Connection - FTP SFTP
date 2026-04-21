@@ -1,0 +1,217 @@
+# FTP
+
+FTP is a connection manager FTP connections used at Whitecap.
+
+This class uses [ftputil](https://ftputil.sschwarzer.net/) as it's backbone.
+
+It's initiated by passing along the host and optionally a port number (default is 21 is none is supplied), then calling login with the username and password.
+
+```
+from wcp_library.ftp.ftp import FTP
+
+FTP_connection = FTP(host="ftp_host.com", port=2100)
+FTP_connection.login(username="ftp_username", password="ftp_password")
+```
+
+Alternatively, you can pass the retrieved dictionary from the credentials manager to immediately start the FTP connection:
+
+```
+from wcp_library.ftp.ftp import FTP
+from wcp_library.credentials.ftp import FTPCredentialsManager
+
+FTP_credential_manager = FTPCredentialsManager(<API_KEY>)
+FTP_credentials = FTP_credential_manager.get(host="ftp_host.com", username="test_user")
+
+FTP_connection = FTP(password_vault_dict=FTP_credentials)
+```
+
+## Methods
+### login
+
+`def login(self, username: str, password: str) -> None:`
+
+Logs in using the supplied username and password.
+
+```
+FTP_connection.login(username="ftp_username", password="ftp_password")
+```
+
+### download
+
+`def download(self, remote_file: Path, local_file: Path) -> None:`
+
+Downloads a file from the FTP server to the local_file path.
+
+```
+FTP_connection.download(remote_file=Path("./test_file.test"), local_file=Path("./download_folder/test_file.test"))
+```
+
+### download_files
+
+`def download_files(self, local_dir: Path, regex_pattern: str='*') -> None:`
+
+Download all files, or files matching a specific regex pattern.
+
+```
+# Download all CSV files in current working directory.
+FTP_connection.download(local_dir=Path("./download_folder", regex_pattern="*.csv"))
+```
+
+### list_files
+
+`def list_files(self) -> list[Path]:`
+
+Returns a list of all files in the current working directory, returned as pathlib.Path objects.
+
+```
+files = FTP_connection.list_files()
+```
+
+### list_dirs
+
+`def list_dirs(self) -> list[Path]:`
+
+Returns a list of all folders in the current working directory, returned as pathlib.Path objects.
+
+```
+dirs = FTP_connection.list_dirs()
+```
+
+### change_dir
+
+`def change_dir(self, remote_dir: Path) -> None:`
+
+Changes the current working directory in the FTP connection.
+
+```
+FTP_connection.change_dir(remote_dir=Path("./test_dir/"))
+```
+
+### upload
+
+`def upload(self, local_file: Path, remote_file: Path) -> None:`
+
+Uploads a local file to the FTP server.
+
+```
+FTP_connection.upload(local_file=Path("./test_file.test"), remote_file=Path("./upload_folder/test_file.test"))
+```
+
+### close
+
+`def close(self) -> None:`
+
+Closes the FTP connection.
+
+```
+FTP_connection.close()
+```
+
+# SFTP
+
+SFTP is a connection manager SFTP connections used at Whitecap.
+
+This class uses [paramiko](https://www.paramiko.org/) as it's backbone.
+
+It's initiated by passing along the host and optionally a port number (default is 22 is none is supplied), then calling login with the username and password.
+
+```
+from wcp_library.ftp.sftp import SFTP
+
+SFTP_connection = SFTP(host="sftp_host.com", port=2200)
+SFTP_connection.login(username="sftp_username", password="sftp_password")
+```
+
+Alternatively, you can pass the retrieved dictionary from the credentials manager to immediately start the FTP connection:
+
+```
+from wcp_library.ftp.sftp import SFTP
+from wcp_library.credentials.ftp import FTPCredentialsManager
+
+FTP_credential_manager = FTPCredentialsManager(<API_KEY>)
+SFTP_credentials = FTP_credential_manager.get(host="ftp_host.com", username="test_user")
+
+SFTP_connection = SFTP(password_vault_dict=SFTP_credentials)
+```
+
+## Methods
+### login
+
+`def login(self, username: str, password: str) -> None:`
+
+Logs in using the supplied username and password.
+
+```
+SFTP_connection.login(username="sftp_username", password="sftp_password")
+```
+
+### download
+
+`def download(self, remote_file: Path, local_file: Path) -> None:`
+
+Downloads a file from the FTP server to the local_file path.
+
+```
+SFTP_connection.download(remote_file=Path("./test_file.test"), local_file=Path("./download_folder/test_file.test"))
+```
+
+### download_files
+
+`def download_files(self, local_dir: Path, regex_pattern: str='*') -> None:`
+
+Download all files, or files matching a specific regex pattern.
+
+```
+# Download all CSV files in current working directory.
+SFTP_connection.download(local_dir=Path("./download_folder", regex_pattern="*.csv"))
+```
+
+### list_files
+
+`def list_files(self) -> list[Path]:`
+
+Returns a list of all files in the current working directory, returned as pathlib.Path objects.
+
+```
+files = SFTP_connection.list_files()
+```
+
+### list_dirs
+
+`def list_dirs(self) -> list[Path]:`
+
+Returns a list of all folders in the current working directory, returned as pathlib.Path objects.
+
+```
+dirs = SFTP_connection.list_dirs()
+```
+
+### change_dir
+
+`def change_dir(self, remote_dir: Path) -> None:`
+
+Changes the current working directory in the SFTP connection.
+
+```
+SFTP_connection.change_dir(remote_dir=Path("./test_dir/"))
+```
+
+### upload
+
+`def upload(self, local_file: Path, remote_file: Path) -> None:`
+
+Uploads a local file to the SFTP server.
+
+```
+SFTP_connection.upload(local_file=Path("./test_file.test"), remote_file=Path("./upload_folder/test_file.test"))
+```
+
+### close
+
+`def close(self) -> None:`
+
+Closes the SFTP connection.
+
+```
+SFTP_connection.close()
+```

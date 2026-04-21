@@ -1,0 +1,477 @@
+# Overview
+
+This library provides a structured and extensible framework for browser automation using Selenium WebDriver. It includes standardized browser driver creators and a rich set of helper functions for interacting with web elements, making it ideal for robust automation and testing workflows.
+
+## Browser
+
+This module defines the foundational architecture for browser automation. It introduces a base class (`BaseSelenium`) for shared browser logic and specialized subclasses for Chrome, Firefox, and Edge. A standalone context manager (`Browser`) streamlines browser session management.
+
+### Key Features
+
+- Unified interface for launching and managing Selenium WebDriver sessions.
+- Supports Firefox, Edge, and Chrome.
+- Support for browser-specific configurations via JSON-style dictionaries.
+- Optional SharePoint integration for uploading error screenshots.
+- Context manager (`Browser`) for automatic setup and teardown of browser sessions.
+- Seamless integration with interaction utilities from `interactions.py`.
+
+## Interactions
+
+This module provides a comprehensive suite of helper classes and methods for interacting with web elements using Selenium WebDriver. It is split into two independent subclasses of a shared `Interactions` base:
+
+- **`UIInteractions`** — locator-based interactions (find elements by CSS, XPath, ID, etc.).
+- **`WEInteractions`** — direct `WebElement`-based interactions (operate on already-located elements).
+
+### Key Features
+
+- Error screenshots are automatically captured on exceptions and uploaded to SharePoint (if configured) or saved to a local fallback directory.
+- All exceptions are logged with contextual information to aid debugging.
+- Every function includes a `WebDriverWait` call to allow optional wait configurations.
+
+# Usage
+
+## Typical Usage
+
+```python
+from wcp_library.browser_automation.browser import Browser
+
+options = {"timeouts": {"implicit": 5000, "pageLoad": 30000}}
+
+with Browser(Browser.Firefox, options) as driver:
+    driver.go_to("https://example.com")
+```
+
+### With SharePoint error screenshots
+
+```python
+from wcp_library.browser_automation.browser import Browser
+
+options = {"timeouts": {"implicit": 5000}}
+sp_config = {
+    "headers": {"Authorization": "Bearer <token>"},
+    "site_id": "<site-id>",
+}
+
+with Browser(Browser.Firefox, options, sharepoint_config=sp_config) as driver:
+    driver.go_to("https://example.com")
+```
+
+## Available Browser Options
+
+| Browser      | Description                               | JSON Configuration                              | Possible Permutations                      |
+| ------------ | ----------------------------------------- | ----------------------------------------------- | ------------------------------------------ |
+| All Browsers | Set browser timeouts (in ms)              | `{"timeouts": {"implicit": 5000, ...}}`         | implicit, pageLoad, script                 |
+| All Browsers | Name of the browser                       | `{"browserName": "chrome"}`                     | chrome, firefox, edge, safari              |
+| All Browsers | Specific version of the browser to use    | `{"browserVersion": "latest"}`                  | latest, 91.0, 90.0                         |
+| All Browsers | OS platform (e.g., 'Windows 10', 'Linux') | `{"platformName": "Windows 10"}`                | Windows 10, Linux, macOS                   |
+| All Browsers | Strategy for page loads                   | `{"pageLoadStrategy": "normal"}`                | normal, eager, none                        |
+| All Browsers | Accept self-signed or invalid certs       | `{"acceptInsecureCerts": true}`                 | true, false                                |
+| All Browsers | Set path to browser binary                | `{"binary": "/path/to/binary"}`                 | /path/to/binary                            |
+| All Browsers | Set download directory                    | `{"download_path": "/tmp"}`                     | /tmp, any valid path                       |
+| Firefox      | Run Firefox in headless mode              | `{"args": ["-headless"]}`                       | -headless                                  |
+| Firefox      | Set Firefox log level                     | `{"log": {"level": "trace"}}`                   | trace, debug, info, warn, error            |
+| Firefox      | Set Firefox profile                       | `{"profile": "/path/to/profile"}`               | /path/to/profile                           |
+| Firefox      | Launch in private browsing mode           | `{"args": ["-private"]}`                        | -private                                   |
+| Chrome       | Disable GPU acceleration                  | `{"args": ["--disable-gpu"]}`                   | --disable-gpu                              |
+| Chrome       | Set experimental options                  | `{"prefs": {"download.default_directory":...}}` | profile.default_content_settings.popups... |
+| Chrome       | Set Chrome extensions                     | `{"extensions": ["/path/to/extension"]}`        | /path/to/extension                         |
+| Chrome       | Exclude switches                          | `{"excludeSwitches": ["enable-automation"]}`     | enable-automation                          |
+| Chrome       | Use automation extension                  | `{"useAutomationExtension": false}`             | true, false                                |
+| Edge         | Use Chromium-based Edge                   | `{"useChromium": true}`                         | true, false                                |
+| Edge         | Set Edge Chromium driver                  | `{"edgeChromiumDriver": "/path/to/driver"}`     | /path/to/driver                            |
+| Chrome/Edge  | Set initial window size                   | `{"args": ["--window-size=1920,1080"]}`         | --window-size=int,int                      |
+| Chrome/Edge  | Run in headless mode                      | `{"args": ["--headless"]}`                      | --headless                                 |
+
+## SharePoint Configuration (Optional)
+
+To save execution screenshots to SharePoint in case of RPA error, add sharepoint_config to the Browser creation with the following keys:
+* `site_id`
+* `app_id`
+* `app_secret`
+* `tenant_id`
+
+### locator
+
+The HTML locator used to find a web element on a page. Used by `UIInteractions` methods.
+
+- **css**: *(Default)* Selects elements using CSS selectors.
+- **id**: Selects an element by its unique ID attribute.
+- **name**: Selects elements by the value of their `name` attribute.
+- **class**: Selects elements by their class name.
+- **tag**: Selects elements by their HTML tag name.
+- **xpath**: Selects elements using XPath expressions.
+- **link_text**: Selects anchor elements whose visible text matches exactly.
+- **partial_link_text**: Selects anchor elements whose visible text contains the specified substring.
+
+### Expected Condition (single element — `UIInteractions`)
+
+- **clickable**: *(Default)* Waits until the element is both visible and enabled so that it can be clicked.
+- **present**: Waits until the element is present in the DOM, regardless of its visibility.
+- **visible**: Waits until the element is visible on the page.
+- **selected**: Waits until the element is selected (useful for checkboxes, radio buttons, etc.).
+- **frame_available**: Waits until the specified frame is available.
+
+### Expected Condition (multiple elements — `UIInteractions`)
+
+- **visible**: *(Default)* Waits until all the elements are visible on the page.
+- **present**: Waits until all the elements are present in the DOM, regardless of their visibility.
+
+### Expected Condition (WebElement — `WEInteractions`)
+
+- **clickable**: *(Default)* Waits until the element is both visible and enabled so that it can be clicked.
+- **visible**: Waits until the element is present in the DOM and visible.
+- **invisible**: Waits until the element is no longer visible.
+- **selected**: Waits until the element is selected (useful for checkboxes, radio buttons, etc.).
+- **staleness**: Waits until the element is no longer attached to the DOM.
+
+### Wait Time
+
+By default it will use the implicit timeout set in the browser options (converted from milliseconds to seconds) but can be overridden per call.
+
+# Functions
+
+## Browser Interactions
+
+### go_to
+
+`go_to(self, url: str | URL) -> None`
+
+Navigate to the specified URL.
+
+```python
+driver.go_to(url)
+```
+
+### refresh_page
+
+`refresh_page(self) -> None`
+
+Refresh the current page.
+
+```python
+driver.refresh_page()
+```
+
+### get_url
+
+`get_url(self) -> str`
+
+Get the current URL of the page.
+
+```python
+driver.get_url()
+```
+
+### get_title
+
+`get_title(self) -> str`
+
+Get the title of the current page.
+
+```python
+driver.get_title()
+```
+
+### switch_to_window
+
+`switch_to_window(self, window_handle: str | list | None = None) -> dict | None`
+
+Switch the browser context to a new window. If none is specified, it will switch to the next opened window and return a dictionary with the original, new, and all window handles.
+
+```python
+driver.switch_to_window(window_handle=window_handle)
+```
+
+### close_window
+
+`close_window(self, window_handle: str | None = None) -> None`
+
+Close a browser window. If none is specified, the window with current focus will be closed.
+
+```python
+driver.close_window(window_handle=window_handle)
+```
+
+### take_screenshot
+
+`take_screenshot(self, file_path: str) -> None`
+
+Take a screenshot of the current page and save it to the specified file path.
+
+```python
+driver.take_screenshot(file_path)
+```
+
+### force_wait
+
+`force_wait(wait_time: int | float) -> None`
+
+Block execution for a fixed duration (in seconds).
+
+```python
+driver.force_wait(5)
+```
+
+### execute_script
+
+`execute_script(self, script: str, *args) -> Any`
+
+Execute JavaScript code in the browser context.
+
+```python
+driver.execute_script("return document.title;")
+driver.execute_script("arguments[0].click();", element)
+```
+
+## HTML Locator Interactions (`UIInteractions`)
+
+### get_element
+
+`get_element(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement`
+
+Get a single WebElement based on the expected condition, locator, and element value.
+
+```python
+driver.get_element(element_value, locator=locator, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### get_multiple_elements
+
+`get_multiple_elements(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> list[WebElement]`
+
+Get a list of WebElements based on the expected condition, locator, and element value.
+
+```python
+driver.get_multiple_elements(element_value, locator=locator, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### get_first_element
+
+`get_first_element(self, elements: list[dict], wait_time: float | None = 0) -> WebElement`
+
+Get the first available WebElement from a list of element dictionaries. Each dictionary must contain an `element` key and may optionally contain `locator` (default `"css"`) and `expected_condition` (default `"clickable"`).
+
+```python
+driver.get_first_element([
+    {"element": "#btn-primary", "locator": "css"},
+    {"element": "//button[@id='fallback']", "locator": "xpath"},
+], wait_time=wait_time)
+```
+
+### get_text
+
+`get_text(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> str`
+
+Get the visible text of an element.
+
+```python
+driver.get_text(element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### get_value
+
+`get_value(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> str`
+
+Get the `value` attribute of an element.
+
+```python
+driver.get_value(element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### get_table
+
+`get_table(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> pd.DataFrame`
+
+Parse an HTML `<table>` element into a pandas DataFrame.
+
+```python
+driver.get_table(element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### press_button
+
+`press_button(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Click an element.
+
+```python
+driver.press_button(element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### enter_text
+
+`enter_text(self, text: str, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Clear and populate a text field with the provided text.
+
+```python
+driver.enter_text(text, element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### set_checkbox_state
+
+`set_checkbox_state(self, state: bool, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Set a checkbox to the desired state.
+
+```python
+driver.set_checkbox_state(True, element_value, locator=locator, expected_condition=expected_condition)
+```
+
+### set_select_option
+
+`set_select_option(self, option: str, element_value: str, select_type: str | None = None, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Choose an option from a `<select>` dropdown. `select_type` can be specified:
+
+- **value**: *(Default)* Selects the option based on the value of its `value` attribute.
+- **visible_text**: Selects the option that displays the specified text to the user.
+- **index**: Selects the option based on its position (zero-based index) in the dropdown list.
+
+```python
+driver.set_select_option(option, element_value, select_type="visible_text", locator=locator)
+```
+
+### web_page_contains
+
+`web_page_contains(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+
+Check whether an element is present on the page. Returns the element if found, otherwise `False`.
+
+```python
+driver.web_page_contains(element_value, locator=locator, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### wait_for_element
+
+`wait_for_element(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement`
+
+Block until an element meets the expected condition.
+
+```python
+driver.wait_for_element(element_value, locator=locator, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### text_is_present
+
+`text_is_present(self, text: str, element_value: str, locator: str | None = None, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+
+Check whether the specified text is present within an element. Returns the element if found, otherwise `False`. `text_location` can be specified:
+
+- **anywhere**: *(Default)* Checks if the specified text appears anywhere within the element.
+- **attribute**: Checks if the specified text is present in a specific attribute of the element.
+- **value**: Checks if the specified text matches the value attribute of the element.
+
+```python
+driver.text_is_present(text, element_value, locator=locator, text_location=text_location, wait_time=wait_time)
+```
+
+## WebElement Interactions (`WEInteractions`)
+
+### wait_for_element_we
+
+`wait_for_element_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement`
+
+Block until a WebElement meets the expected condition.
+
+```python
+driver.wait_for_element_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### get_text_we
+
+`get_text_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> str`
+
+Get the visible text of a WebElement.
+
+```python
+driver.get_text_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### get_value_we
+
+`get_value_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> str`
+
+Get the `value` attribute of a WebElement.
+
+```python
+driver.get_value_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### get_table_we
+
+`get_table_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> pd.DataFrame`
+
+Parse an HTML `<table>` WebElement into a pandas DataFrame.
+
+```python
+driver.get_table_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### press_button_we
+
+`press_button_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Click a WebElement.
+
+```python
+driver.press_button_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### enter_text_we
+
+`enter_text_we(self, text: str, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Clear and populate a text field via WebElement.
+
+```python
+driver.enter_text_we(text, web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### set_checkbox_state_we
+
+`set_checkbox_state_we(self, state: bool, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Set a checkbox to the desired state via WebElement.
+
+```python
+driver.set_checkbox_state_we(True, web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### set_select_option_we
+
+`set_select_option_we(self, option: str, web_element: WebElement, select_type: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> None`
+
+Choose an option from a `<select>` dropdown via WebElement. `select_type` can be specified:
+
+- **value**: *(Default)* Selects the option based on the value of its `value` attribute.
+- **visible_text**: Selects the option that displays the specified text to the user.
+- **index**: Selects the option based on its position (zero-based index) in the dropdown list.
+
+```python
+driver.set_select_option_we(option, web_element, select_type="visible_text")
+```
+
+### web_page_contains_we
+
+`web_page_contains_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+
+Check if a WebElement is present and meets a condition. Returns the element if found, otherwise `False`.
+
+```python
+driver.web_page_contains_we(web_element, expected_condition=expected_condition, wait_time=wait_time)
+```
+
+### text_is_present_we
+
+`text_is_present_we(self, web_element: WebElement, text: str, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+
+Check whether the specified text is present within a WebElement. Returns the element if found, otherwise `False`. `text_location` can be specified:
+
+- **anywhere**: *(Default)* Checks if the specified text appears anywhere within the element.
+- **attribute**: Checks if the specified text is present in a specific attribute of the element.
+- **value**: Checks if the specified text matches the value attribute of the element.
+
+```python
+driver.text_is_present_we(web_element, text, text_location=text_location, wait_time=wait_time)
+```

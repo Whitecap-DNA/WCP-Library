@@ -1,0 +1,122 @@
+# Email Utility Module
+
+This module provides functions to send emails with optional HTML formatting and attachments using Python's built-in smtplib and email libraries. It is designed for internal use within the WCAP environment.
+
+## Overview
+
+This module is instantiated using the MailServer class. It requires the vault's internet api key (See Mitch for details).
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Password-ID>)
+mail_server.send_email("Python@wcap.ca",
+           ["user@wcap.ca"],
+           "Test Email",
+           "This is a plain text email.")
+```
+
+The module includes:
+
+- A core function send_email() for sending emails with flexible options.
+- Convenience wrappers for specific use cases (email_reporting).
+- Deprecated functions for backward compatibility (send_html_email, email_with_attachments).
+
+## Functions
+
+### send_email()
+
+#### Signature
+
+```
+send_email(sender: str,
+           recipients: list[str],
+           subject: str,
+           body: str,
+           body_type: str = "plain",
+           attachments: list[Path] = None
+) -> None
+```
+
+#### Description
+
+Sends an email with optional HTML content and file attachments.
+
+#### Parameters
+
+- sender (str): Email address of the sender.
+- recipients (list[str]): List of recipient email addresses.
+- subject (str): Subject line of the email.
+- body (str): Email body text.
+- body_type (str): "plain" for text or "html" for HTML content. Default is "plain".
+- attachments (list[Path]): Optional list of file paths to attach.
+
+#### Behavior
+
+- Creates a MIMEMultipart email container.
+- Attaches body as plain text or HTML.
+- Adds attachments if provided.
+- Sends email via SMTP server mail.wcap.ca on port 25.
+
+### email_reporting()
+
+#### Signature
+
+```
+email_reporting(subject: str, body: str) -> None
+```
+
+#### Description
+
+Shortcut for sending emails to the reporting team.
+
+#### Parameters
+
+- subject (str): Email subject.
+- body (str): Email body.
+
+#### Behavior
+
+- Uses send_email() internally.
+- Sender: python@wcap.ca
+- Recipient: reporting@wcap.ca
+
+## Usage Examples
+
+### Send a plain text email
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Password-ID>)
+mail_server.send_email("Python@wcap.ca",
+           ["user@wcap.ca"],
+           "Test Email",
+           "This is a plain text email.")
+```
+
+### Send an HTML email
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Password-ID>)
+mail_server.send_email("Python@wcap.ca",
+           ["user@wcap.ca"],
+           "HTML Email",
+           "`<h1>`Hello`</h1><p>`This is an HTML email.`</p>`",body_type="html"
+)
+```
+
+### Send email with attachments
+
+```
+from pathlib import Path
+
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Password-ID>)
+mail_server.send_email("Python@wcap.ca",
+           ["user@wcap.ca"],
+           "Report",
+           "Please find the attached report.",
+           attachments=[Path("report.pdf"), Path("data.csv")])
+```
+
+### Send a reporting email
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Password-ID>)
+mail_server.email_reporting("Reporting report", "This is a log message")
+```

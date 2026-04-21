@@ -1,0 +1,102 @@
+This portion of the library is a standardized informatica API helper.
+
+It's initiated by passing along a username and password.
+
+Any errors that are thrown as a result of Informatica failures will raise an InformaticaError.
+
+```
+from wcp_library.informatica import InformaticaSession
+
+informatica_session = InformaticaSession("Example-User", "Example-Pass")
+```
+
+## Methods
+### get_tasks
+
+`def get_tasks(self, task_type: str) -> dict:`
+
+Returns a task dictionary containing all the tasks with the specified task type.
+
+You can find the list of task types (here)[https://jsapi.apiary.io/apis/cloudrestapi/reference/job/list-of-tasks.html].
+
+The API endpoint documentation with expected return values is [here](https://docs.informatica.com/integration-cloud/b2b-gateway/current-version/rest-api-reference/platform-rest-api-version-2-resources/tasks.html).
+
+```
+mtt_tasks = informatica_session.get_tasks("MTT")
+```
+
+### get_task_id
+
+`def get_task_id(self, task_name: str, task_type: str) -> str:`
+
+This function piggy-backs off get_tasks() to find the associated taskId.
+
+```
+mtt_task_id = informatica_session.get_task_id("Test-Task", "MTT")
+```
+
+### is_task_running
+
+`def is_task_running(self, task_id: str) -> tuple[bool, datetime]:`
+
+Determines whether or not a task is running based off it's taskId. It returns a boolean value (true = running, false = not), and the local time (MT) the task started running.
+
+```
+is_running, start_time = informatica_session.is_task_running(mtt_task_id)
+```
+
+### run_job
+
+`def run_job(self, task_id: str, task_type: str) -> str:`
+
+Initiates a job to run on the informatica instance, returns the job's jobId.
+
+```
+job_id = informatica_session.run_job(mtt_task_id, "MTT")
+```
+
+### wait_until_job_finished
+
+`def wait_until_job_finish(self, run_id: str) -> datetime:`
+
+Waits for the informatica job to finish running, and returns it's end time.
+
+```
+job_end_time = informatica_session.wait_until_job_finished(job_id)
+```
+
+### get_connection_details
+
+`def get_connection_details(self) -> dict:`
+
+Returns all of the connections inside the informatica instance.
+
+The API endpoint documentation with expected return values is [here](https://docs.informatica.com/integration-cloud/b2b-gateway/current-version/rest-api-reference/data-integration-rest-api/connections.html).
+
+```
+all_informatica_connections = informatica_session.get_connection_details()
+```
+
+### get_all_mapping_details
+
+`def get_all_mapping_details(self) -> dict:`
+
+Returns all of the mappings inside the informatica instance.
+
+The API endpoint documentation with expected return values is [here](https://docs.informatica.com/integration-cloud/b2b-gateway/current-version/rest-api-reference/data-integration-rest-api/mappings.html).
+
+```
+all_informatica_connections = informatica_session.get_all_mapping_details()
+```
+
+### get_mapping_details
+
+`def get_mapping_details(self, mapping_id: str) -> dict:`
+
+Returns the details of the specified mapping inside the informatica instance.
+
+The API endpoint documentation with expected return values is [here](https://docs.informatica.com/integration-cloud/b2b-gateway/current-version/rest-api-reference/data-integration-rest-api/mappings.html).
+
+```
+all_informatica_connections = informatica_session.get_all_mapping_details()
+```
