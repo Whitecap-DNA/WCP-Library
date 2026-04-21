@@ -333,7 +333,157 @@ class AsyncTransaction(AsyncExecutor):
 """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
 
 
-class PostgresConnection(object):
+class SyncExecutor(ABC):
+    """Sync mirror of :class:`AsyncExecutor`. Same surface, synchronous signatures.
+
+    Concrete subclasses implement the five primitives (execute,
+    safe_execute, execute_many, execute_multiple, fetch_data). The
+    composite data-manipulation methods live here and call
+    self.<primitive> -- dispatch is correct on both PostgresConnection
+    (per-call pool checkout) and Transaction (single held connection)
+    because both implement the same primitive surface.
+    """
+
+    @abstractmethod
+    def execute(self, query): ...
+
+    @abstractmethod
+    def safe_execute(self, query, packed_values): ...
+
+    @abstractmethod
+    def execute_many(self, query, dictionary): ...
+
+    @abstractmethod
+    def execute_multiple(self, queries): ...
+
+    @abstractmethod
+    def fetch_data(self, query, packed_data=None): ...
+
+    def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
+        """
+        Export the DataFrame to the warehouse
+
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns to insert
+        :param remove_nan: remove NaN values
+        :return: Number of records inserted
+        """
+
+        columns = list(columns) if not isinstance(columns, list) else columns
+
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        df_copy = df[columns].copy()
+        if remove_nan:
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
+
+        records = list(df_copy.itertuples(index=False, name=None))
+        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
+        self.execute_many(query, records)
+        return len(records)
+
+    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
+        """
+        Upsert the DataFrame to the warehouse
+
+        :param df: DataFrame
+        :param table_name: output table name
+        :param columns: list of columns
+        :param match_cols: list of columns to match on
+        :param remove_nan: remove NaN values
+        :return: Number of records upserted
+        """
+
+        columns = list(columns) if not isinstance(columns, list) else columns
+        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
+
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(columns)):
+            raise ValueError("match_cols must be a subset of columns")
+        if df.empty:
+            return 0
+
+        update_cols = [c for c in columns if c not in match_cols]
+
+        col_ids = SQL(", ").join(Identifier(c) for c in columns)
+        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
+        placeholders = SQL(", ").join(Placeholder() for _ in columns)
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+
+        if update_cols:
+            updates = SQL(", ").join(
+                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
+                for c in update_cols
+            )
+            conflict_action = SQL("DO UPDATE SET {}").format(updates)
+        else:
+            conflict_action = SQL("DO NOTHING")
+
+        query = SQL(
+            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
+        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
+
+        df_copy = df[columns].copy()
+        if remove_nan:
+            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+        df_copy = df_copy.replace({"": None})
+
+        records = list(df_copy.itertuples(index=False, name=None))
+        self.execute_many(query, records)
+        return len(records)
+
+    def truncate_table(self, table_name: str) -> None:
+        """
+        Truncate the table
+
+        :param table_name: table name
+        :return: None
+        """
+
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
+        self.execute(truncate_query)
+
+    def empty_table(self, table_name: str) -> None:
+        """
+        Empty the table
+
+        :param table_name: table name
+        :return: None
+        """
+
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+
+        table_parts = table_name.split(".")
+        table_id = Identifier(*table_parts)
+        delete_query = SQL("DELETE FROM {}").format(table_id)
+        self.execute(delete_query)
+
+
+class PostgresConnection(SyncExecutor):
     """
     SQL Connection Class
 
@@ -550,133 +700,6 @@ class PostgresConnection(object):
         main_dict = df_subset.to_dict('records')
         self.execute_many(query, main_dict)
         return len(main_dict)
-
-    @retry
-    def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
-        """
-        Export the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns to insert
-        :param remove_nan: remove NaN values
-        :return: Number of records inserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-
-        if not columns:
-            raise ValueError("columns cannot be empty")
-        if not set(columns).issubset(set(df.columns)):
-            raise ValueError("columns must be a subset of DataFrame columns")
-        if df.empty:
-            return 0
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
-        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
-        self.execute_many(query, records)
-        return len(records)
-
-    @retry
-    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
-        """
-        Upsert the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns
-        :param match_cols: list of columns to match on
-        :param remove_nan: remove NaN values
-        :return: Number of records upserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
-
-        if not columns:
-            raise ValueError("columns cannot be empty")
-        if not match_cols:
-            raise ValueError("match_cols cannot be empty")
-        if not set(match_cols).issubset(set(columns)):
-            raise ValueError("match_cols must be a subset of columns")
-        if df.empty:
-            return 0
-
-        update_cols = [c for c in columns if c not in match_cols]
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        if update_cols:
-            updates = SQL(", ").join(
-                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
-                for c in update_cols
-            )
-            conflict_action = SQL("DO UPDATE SET {}").format(updates)
-        else:
-            conflict_action = SQL("DO NOTHING")
-
-        query = SQL(
-            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
-        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
-        self.execute_many(query, records)
-        return len(records)
-
-    @retry
-    def truncate_table(self, table_name: str) -> None:
-        """
-        Truncate the table
-
-        :param table_name: table name
-        :return: None
-        """
-
-        if not table_name:
-            raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
-        self.execute(truncate_query)
-
-    @retry
-    def empty_table(self, table_name: str) -> None:
-        """
-        Empty the table
-
-        :param table_name: table name
-        :return: None
-        """
-
-        if not table_name:
-            raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        delete_query = SQL("DELETE FROM {}").format(table_id)
-        self.execute(delete_query)
 
     def __enter__(self):
         """
