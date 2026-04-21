@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import numpy as np
 import pandas as pd
@@ -483,6 +483,83 @@ class SyncExecutor(ABC):
         self.execute(delete_query)
 
 
+class Transaction(SyncExecutor):
+    """Handle yielded by ``PostgresConnection.transaction()``.
+
+    Sync mirror of :class:`AsyncTransaction`. All primitives run on
+    the single held psycopg3 Connection and do NOT commit per call.
+    Committed on normal context-manager exit, rolled back on
+    exception (by psycopg3's native transaction context). Manual
+    :meth:`commit` / :meth:`rollback` are available for early
+    termination; after either is called, the outer context manager's
+    commit/rollback becomes a no-op because no transaction remains
+    open.
+
+    Composite methods (``upsert_df_to_warehouse``, ``truncate_table``,
+    etc.) are inherited from :class:`SyncExecutor` and dispatch to the
+    primitives on this class -- so they run transactionally too.
+
+    No retry decoration on the primitives here: retry belongs at the
+    transaction boundary via :meth:`PostgresConnection.retry_transaction`.
+    """
+
+    def __init__(self, parent, connection):
+        self._parent = parent
+        self._connection = connection
+        self._completed_manually = False
+
+    @property
+    def connection(self):
+        """The underlying psycopg3 ``Connection`` (escape hatch)."""
+        return self._connection
+
+    def execute(self, query):
+        self._connection.execute(query)
+
+    def safe_execute(self, query, packed_values):
+        self._connection.execute(query, packed_values)
+
+    def execute_many(self, query, dictionary):
+        self._connection.prepare_threshold = None
+        cursor = self._connection.cursor()
+        cursor.executemany(query, dictionary, returning=False)
+
+    def execute_multiple(self, queries):
+        for item in queries:
+            query = item[0]
+            packed_values = item[1] if len(item) > 1 else None
+            if packed_values:
+                self._connection.execute(query, packed_values)
+            else:
+                self._connection.execute(query)
+
+    def fetch_data(self, query, packed_data=None):
+        cursor = self._connection.cursor()
+        if packed_data:
+            cursor.execute(query, packed_data)
+        else:
+            cursor.execute(query)
+        return cursor.fetchall()
+
+    def commit(self):
+        """Commit the transaction early.
+
+        After this call, the outer ``with conn.transaction():`` block's
+        commit-on-exit becomes a no-op (no active transaction).
+        """
+        self._connection.commit()
+        self._completed_manually = True
+
+    def rollback(self):
+        """Rollback the transaction early.
+
+        After this call, the outer ``with conn.transaction():`` block's
+        rollback-on-exception becomes a no-op (no active transaction).
+        """
+        self._connection.rollback()
+        self._completed_manually = True
+
+
 class PostgresConnection(SyncExecutor):
     """
     SQL Connection Class
@@ -490,7 +567,23 @@ class PostgresConnection(SyncExecutor):
     :return: None
     """
 
-    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
+    def __init__(
+        self,
+        use_pool: bool = False,
+        min_connections: int = 2,
+        max_connections: int = 5,
+        autocommit: bool = True,
+    ):
+        if use_pool and not autocommit:
+            raise ValueError(
+                "use_pool=True with autocommit=False is unsupported — "
+                "pool-per-call checkout combined with caller-driven commit "
+                "leaves held connections dangling across statement "
+                "boundaries. Use conn.transaction() for transactional "
+                "work on a pooled connection."
+            )
+        self._autocommit = autocommit
+
         self._username: str | None = None
         self._password: str | None = None
         self._hostname: str | None = None
@@ -581,9 +674,10 @@ class PostgresConnection(SyncExecutor):
 
         connection = self._get_connection()
         connection.execute(query)
-        connection.commit()
+        if self._autocommit:
+            connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             self._session_pool.putconn(connection)
 
     @retry
@@ -598,9 +692,10 @@ class PostgresConnection(SyncExecutor):
 
         connection = self._get_connection()
         connection.execute(query, packed_values)
-        connection.commit()
+        if self._autocommit:
+            connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             self._session_pool.putconn(connection)
 
     @retry
@@ -620,9 +715,10 @@ class PostgresConnection(SyncExecutor):
                 connection.execute(query, packed_values)
             else:
                 connection.execute(query)
-        connection.commit()
+        if self._autocommit:
+            connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             self._session_pool.putconn(connection)
 
     @retry
@@ -639,9 +735,10 @@ class PostgresConnection(SyncExecutor):
         connection.prepare_threshold = None
         cursor = connection.cursor()
         cursor.executemany(query, dictionary, returning=False)
-        connection.commit()
+        if self._autocommit:
+            connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             self._session_pool.putconn(connection)
 
     @retry
@@ -661,11 +758,135 @@ class PostgresConnection(SyncExecutor):
         else:
             cursor.execute(query)
         rows = cursor.fetchall()
-        connection.commit()
+        if self._autocommit:
+            connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             self._session_pool.putconn(connection)
         return rows
+
+    def commit(self) -> None:
+        """Commit the current transaction.
+
+        Only meaningful when the instance was constructed with
+        ``autocommit=False``. No-op if no connection has been opened yet.
+        """
+        if self._connection is None:
+            return
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        """Rollback the current transaction.
+
+        Only meaningful when the instance was constructed with
+        ``autocommit=False``. No-op if no connection has been opened yet.
+        """
+        if self._connection is None:
+            return
+        self._connection.rollback()
+
+    @contextmanager
+    def transaction(self):
+        """Enter a transactional context on a single held physical connection.
+
+        Usage:
+
+            with conn.transaction() as tx:
+                tx.execute("CREATE TABLE ...")
+                tx.upsert_df_to_warehouse(df, "target", cols, match_cols)
+            # Commit on normal exit, rollback on exception.
+
+        Autocommit is toggled to False for the block and restored on
+        exit. If ``use_pool=True``, the connection is returned to the
+        pool at exit. psycopg3's native ``connection.transaction()``
+        handles BEGIN/COMMIT/ROLLBACK (nested calls produce SAVEPOINTs).
+
+        :yield: a :class:`Transaction` bound to the held connection.
+        """
+        connection = self._get_connection()
+        prior_autocommit = connection.autocommit
+        try:
+            connection.autocommit = False
+            tx = Transaction(self, connection)
+            with connection.transaction():
+                yield tx
+                # If tx.commit() / tx.rollback() was called, the native
+                # transaction context manager sees no active transaction
+                # and its own commit/rollback becomes a no-op.
+        finally:
+            try:
+                connection.autocommit = prior_autocommit
+            finally:
+                if self.use_pool:
+                    self._session_pool.putconn(connection)
+
+    def retry_transaction(self, fn):
+        """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
+
+        Sync mirror of :meth:`AsyncPostgresConnection.retry_transaction`.
+        On retriable Postgres errors (``full_code`` in
+        ``self.retry_error_codes``), the transaction is rolled back,
+        the thread sleeps 5 minutes per the standard library policy,
+        and a fresh transaction is entered to retry ``fn``.
+        Non-retriable errors propagate immediately.
+
+        This is the transaction-scoped equivalent of the ``@retry``
+        decorator: same exception filtering, same backoff, same
+        attempt limit, just applied at the granularity of the whole
+        ``with self.transaction() as tx: fn(tx)`` block.
+
+        :param fn: callable taking a :class:`Transaction`, returning any value
+        :return: the return value of the successful ``fn`` invocation
+        :raises: the final exception if all attempts fail, or any non-
+            retriable error immediately
+        """
+        import oracledb
+        from time import sleep
+
+        self._retry_count = 0
+        while True:
+            try:
+                with self.transaction() as tx:
+                    return fn(tx)
+            except (
+                oracledb.OperationalError,
+                oracledb.DatabaseError,
+                psycopg.OperationalError,
+            ) as e:
+                if isinstance(e, (
+                    oracledb.OperationalError,
+                    oracledb.DatabaseError,
+                    psycopg.OperationalError,
+                    psycopg.DatabaseError,
+                )):
+                    error_obj, = e.args
+                    if isinstance(error_obj, str):
+                        raise e
+                    elif (
+                        error_obj.full_code in self.retry_error_codes
+                        and self._retry_count < self.retry_limit
+                    ):
+                        self._retry_count += 1
+                        logger.debug(f"Database connection error: {error_obj.full_code}")
+                        logger.debug(f"Error message: {error_obj.message}")
+                        logger.info(
+                            f"Retry attempt {self._retry_count}/{self.retry_limit}. "
+                            f"Waiting 5 minutes before retrying transaction"
+                        )
+                        sleep(300)
+                    else:
+                        if error_obj.full_code not in self.retry_error_codes:
+                            logger.error(
+                                f"Non-retryable database error: {error_obj.full_code}"
+                            )
+                        else:
+                            logger.error(
+                                f"Retry limit ({self.retry_limit}) reached for "
+                                f"error: {error_obj.full_code}"
+                            )
+                        raise e
+                else:
+                    raise e
 
     @retry
     def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
