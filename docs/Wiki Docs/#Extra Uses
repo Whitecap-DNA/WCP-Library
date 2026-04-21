@@ -1,0 +1,28 @@
+Outlined below are some common uses for portions of the library that don't fall into the outline of each module.
+
+# application_path
+
+application_path is a variable setup inside the library that gives the root directory the project is located. It works both for frozen executables, and from running inside virtual environments.
+
+## Creating download directory paths
+
+Likely the most common thing this will be used for is creating download directory paths, that are relative to where you are running the program from. This being universal it means we don't need to hardcode and continuously change paths depending on where the program is deployed.
+
+```
+from wcp_library import application_path
+
+download_dir = application_path / "downloads"
+download_dir.mkdir(parents=True, exist_ok=True)
+```
+
+# divide_chunks
+
+Divide chunks is a simple function that divides and yields chunks of a list of a specified size.
+
+```
+from wcp_library import divide_chunks
+
+example_list = ['item1', 'item2', ..., 'item999']
+for chunk in divide_chunks(list_obj=example_list, size=30)
+    # Do something
+```
