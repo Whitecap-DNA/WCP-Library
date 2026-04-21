@@ -289,6 +289,7 @@ class AsyncTransaction(AsyncExecutor):
         await self._connection.execute(query, packed_values)
 
     async def execute_many(self, query, dictionary):
+        self._connection.prepare_threshold = None
         cursor = self._connection.cursor()
         await cursor.executemany(query, dictionary, returning=False)
 
