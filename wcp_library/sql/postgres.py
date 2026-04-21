@@ -971,6 +971,72 @@ class AsyncPostgresConnection(AsyncExecutor):
                 if self.use_pool:
                     await self._session_pool.putconn(connection)
 
+    async def retry_transaction(self, fn):
+        """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
+
+        On retriable Postgres errors (``full_code`` in ``self.retry_error_codes``),
+        the transaction is rolled back, the coroutine waits 5 minutes per the
+        standard library policy, and a fresh transaction is entered to retry
+        ``fn``. Non-retriable errors propagate immediately.
+
+        This is the transaction-scoped equivalent of the ``@async_retry``
+        decorator: same exception filtering, same backoff, same attempt
+        limit, just applied at the granularity of the whole ``async with
+        self.transaction() as tx: await fn(tx)`` block.
+
+        :param fn: async callable taking an :class:`AsyncTransaction`, returning any value
+        :return: the return value of the successful ``fn`` invocation
+        :raises: the final exception if all attempts fail, or any non-
+            retriable error immediately
+        """
+        import asyncio
+        import oracledb
+
+        self._retry_count = 0
+        while True:
+            try:
+                async with self.transaction() as tx:
+                    return await fn(tx)
+            except (
+                oracledb.OperationalError,
+                oracledb.DatabaseError,
+                psycopg.OperationalError,
+            ) as e:
+                if isinstance(e, (
+                    oracledb.OperationalError,
+                    oracledb.DatabaseError,
+                    psycopg.OperationalError,
+                    psycopg.DatabaseError,
+                )):
+                    error_obj, = e.args
+                    if isinstance(error_obj, str):
+                        raise e
+                    elif (
+                        error_obj.full_code in self.retry_error_codes
+                        and self._retry_count < self.retry_limit
+                    ):
+                        self._retry_count += 1
+                        logger.debug(f"Database connection error: {error_obj.full_code}")
+                        logger.debug(f"Error message: {error_obj.message}")
+                        logger.info(
+                            f"Retry attempt {self._retry_count}/{self.retry_limit}. "
+                            f"Waiting 5 minutes before retrying transaction"
+                        )
+                        await asyncio.sleep(300)
+                    else:
+                        if error_obj.full_code not in self.retry_error_codes:
+                            logger.error(
+                                f"Non-retryable database error: {error_obj.full_code}"
+                            )
+                        else:
+                            logger.error(
+                                f"Retry limit ({self.retry_limit}) reached for "
+                                f"error: {error_obj.full_code}"
+                            )
+                        raise e
+                else:
+                    raise e
+
     @async_retry
     async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
