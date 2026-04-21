@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
 
 import numpy as np
 import pandas as pd
@@ -250,6 +251,82 @@ class AsyncExecutor(ABC):
         table_id = Identifier(*table_parts)
         delete_query = SQL("DELETE FROM {}").format(table_id)
         await self.execute(delete_query)
+
+
+class AsyncTransaction(AsyncExecutor):
+    """Handle yielded by ``AsyncPostgresConnection.transaction()``.
+
+    All primitives run on the single held psycopg3 AsyncConnection and
+    do NOT commit per call. The transaction is committed on normal
+    context-manager exit and rolled back on exception (by psycopg3's
+    native transaction context). Manual :meth:`commit` / :meth:`rollback`
+    are available for early termination; after either is called, the
+    outer context manager's commit/rollback becomes a no-op because no
+    transaction remains open.
+
+    Composite methods (``upsert_df_to_warehouse``, ``truncate_table``,
+    etc.) are inherited from :class:`AsyncExecutor` and dispatch to the
+    primitives on this class -- so they run transactionally too.
+
+    No retry decoration on the primitives here: retry belongs at the
+    transaction boundary via :meth:`AsyncPostgresConnection.retry_transaction`.
+    """
+
+    def __init__(self, parent, connection):
+        self._parent = parent
+        self._connection = connection
+        self._completed_manually = False
+
+    @property
+    def connection(self):
+        """The underlying psycopg3 ``AsyncConnection`` (escape hatch)."""
+        return self._connection
+
+    async def execute(self, query):
+        await self._connection.execute(query)
+
+    async def safe_execute(self, query, packed_values):
+        await self._connection.execute(query, packed_values)
+
+    async def execute_many(self, query, dictionary):
+        cursor = self._connection.cursor()
+        await cursor.executemany(query, dictionary, returning=False)
+
+    async def execute_multiple(self, queries):
+        for item in queries:
+            query = item[0]
+            packed_values = item[1] if len(item) > 1 else None
+            if packed_values:
+                await self._connection.execute(query, packed_values)
+            else:
+                await self._connection.execute(query)
+
+    async def fetch_data(self, query, packed_data=None):
+        cursor = self._connection.cursor()
+        if packed_data:
+            await cursor.execute(query, packed_data)
+        else:
+            await cursor.execute(query)
+        return await cursor.fetchall()
+
+    async def commit(self):
+        """Commit the transaction early.
+
+        After this call, the outer ``async with conn.transaction():``
+        block's commit-on-exit becomes a no-op (no active transaction).
+        """
+        await self._connection.commit()
+        self._completed_manually = True
+
+    async def rollback(self):
+        """Rollback the transaction early.
+
+        After this call, the outer ``async with conn.transaction():``
+        block's rollback-on-exception becomes a no-op (no active
+        transaction).
+        """
+        await self._connection.rollback()
+        self._completed_manually = True
 
 
 """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
@@ -856,6 +933,42 @@ class AsyncPostgresConnection(AsyncExecutor):
         if self._connection is None:
             return
         await self._connection.rollback()
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Enter a transactional context on a single held physical connection.
+
+        Usage:
+
+            async with conn.transaction() as tx:
+                await tx.execute("SET LOCAL ROLE some_role")
+                await tx.execute("CREATE TABLE foo (...)")
+                await tx.upsert_df_to_warehouse(df, "foo", cols, match_cols)
+            # Commit on normal exit, rollback on exception.
+
+        Autocommit is toggled to False for the block and restored on exit.
+        If ``use_pool=True``, the connection is returned to the pool at
+        exit. psycopg3's native ``connection.transaction()`` handles
+        BEGIN/COMMIT/ROLLBACK (nested calls produce SAVEPOINTs).
+
+        :yield: an :class:`AsyncTransaction` bound to the held connection.
+        """
+        connection = await self._get_connection()
+        prior_autocommit = connection.autocommit
+        try:
+            await connection.set_autocommit(False)
+            tx = AsyncTransaction(self, connection)
+            async with connection.transaction():
+                yield tx
+                # If tx.commit() / tx.rollback() was called, the native
+                # transaction context manager sees no active transaction
+                # and its own commit/rollback becomes a no-op.
+        finally:
+            try:
+                await connection.set_autocommit(prior_autocommit)
+            finally:
+                if self.use_pool:
+                    await self._session_pool.putconn(connection)
 
     @async_retry
     async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
