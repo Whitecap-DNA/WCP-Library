@@ -639,7 +639,23 @@ class AsyncPostgresConnection(AsyncExecutor):
     :return: None
     """
 
-    def __init__(self, use_pool: bool = False, min_connections: int = 2, max_connections: int = 5):
+    def __init__(
+        self,
+        use_pool: bool = False,
+        min_connections: int = 2,
+        max_connections: int = 5,
+        autocommit: bool = True,
+    ):
+        if use_pool and not autocommit:
+            raise ValueError(
+                "use_pool=True with autocommit=False is unsupported — "
+                "pool-per-call checkout combined with caller-driven commit "
+                "leaves held connections dangling across statement "
+                "boundaries. Use conn.transaction() for transactional "
+                "work on a pooled connection."
+            )
+        self._autocommit = autocommit
+
         self._username: str | None = None
         self._password: str | None = None
         self._hostname: str | None = None
@@ -730,9 +746,10 @@ class AsyncPostgresConnection(AsyncExecutor):
 
         connection = await self._get_connection()
         await connection.execute(query)
-        await connection.commit()
+        if self._autocommit:
+            await connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             await self._session_pool.putconn(connection)
 
     @async_retry
@@ -747,9 +764,10 @@ class AsyncPostgresConnection(AsyncExecutor):
 
         connection = await self._get_connection()
         await connection.execute(query, packed_values)
-        await connection.commit()
+        if self._autocommit:
+            await connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             await self._session_pool.putconn(connection)
 
     @async_retry
@@ -769,9 +787,10 @@ class AsyncPostgresConnection(AsyncExecutor):
                 await connection.execute(query, packed_values)
             else:
                 await connection.execute(query)
-        await connection.commit()
+        if self._autocommit:
+            await connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             await self._session_pool.putconn(connection)
 
     @async_retry
@@ -788,9 +807,10 @@ class AsyncPostgresConnection(AsyncExecutor):
         connection.prepare_threshold = None
         cursor = connection.cursor()
         await cursor.executemany(query, dictionary, returning=False)
-        await connection.commit()
+        if self._autocommit:
+            await connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             await self._session_pool.putconn(connection)
 
     @async_retry
@@ -810,11 +830,32 @@ class AsyncPostgresConnection(AsyncExecutor):
         else:
             await cursor.execute(query)
         rows = await cursor.fetchall()
-        await connection.commit()
+        if self._autocommit:
+            await connection.commit()
 
-        if self.use_pool:
+        if self.use_pool and self._autocommit:
             await self._session_pool.putconn(connection)
         return rows
+
+    async def commit(self) -> None:
+        """Commit the current transaction.
+
+        Only meaningful when the instance was constructed with
+        ``autocommit=False``. No-op if no connection has been opened yet.
+        """
+        if self._connection is None:
+            return
+        await self._connection.commit()
+
+    async def rollback(self) -> None:
+        """Rollback the current transaction.
+
+        Only meaningful when the instance was constructed with
+        ``autocommit=False``. No-op if no connection has been opened yet.
+        """
+        if self._connection is None:
+            return
+        await self._connection.rollback()
 
     @async_retry
     async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
