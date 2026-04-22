@@ -21,7 +21,7 @@ import random
 
 import oracledb
 import psycopg
-from tenacity import retry_if_exception, stop_after_attempt
+from tenacity import retry_if_exception, retry_if_exception_type, stop_after_attempt
 
 logger = logging.getLogger(__name__)
 
@@ -132,4 +132,22 @@ oracle_retry_kwargs = _make_sql_retry(
     connection_loss_codes=_ORACLE_CONNECTION_LOSS,
     transient_codes=_ORACLE_TRANSIENT,
     name="oracle",
+)
+
+
+def _graph_wait(retry_state) -> float:
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, _GraphRetriable) and exc.response is not None:
+        retry_after = exc.response.headers.get("Retry-After")
+        if retry_after and retry_after.isdigit():
+            return float(retry_after)
+    return min(2 ** (retry_state.attempt_number - 1), 60) + random.uniform(0, 3)
+
+
+graph_retry_kwargs = dict(
+    retry=retry_if_exception_type(_GraphRetriable),
+    wait=_graph_wait,
+    stop=stop_after_attempt(5),
+    before_sleep=_before_sleep_log,
+    reraise=True,
 )

@@ -103,3 +103,68 @@ class TestOracleRetryStrategy:
             retry_state = MagicMock()
             retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, code)
             assert oracle_retry_kwargs["retry"](retry_state), code
+
+
+import requests
+
+from wcp_library.retry import graph_retry_kwargs, _GraphRetriable
+
+
+def _mk_graph_retry_response(status_code: int, retry_after: str | None = None):
+    resp = MagicMock(spec=requests.Response)
+    resp.status_code = status_code
+    resp.headers = {"Retry-After": retry_after} if retry_after else {}
+    return resp
+
+
+class TestGraphRetryStrategy:
+    def test_kwargs_are_complete(self):
+        for key in ("retry", "wait", "stop", "before_sleep", "reraise"):
+            assert key in graph_retry_kwargs, key
+
+    def test_retry_after_header_honored(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _GraphRetriable(
+            response=_mk_graph_retry_response(429, retry_after="42")
+        )
+        retry_state.attempt_number = 1
+        wait = graph_retry_kwargs["wait"](retry_state)
+        assert wait == 42.0
+
+    def test_exp_backoff_when_no_retry_after(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _GraphRetriable(
+            response=_mk_graph_retry_response(503)
+        )
+        retry_state.attempt_number = 1
+        wait = graph_retry_kwargs["wait"](retry_state)
+        assert 1.0 <= wait <= 4.0
+
+    def test_exp_backoff_on_network_error(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _GraphRetriable(
+            underlying=requests.ConnectionError("boom")
+        )
+        retry_state.attempt_number = 2
+        wait = graph_retry_kwargs["wait"](retry_state)
+        assert 2.0 <= wait <= 5.0
+
+    def test_non_numeric_retry_after_falls_back_to_backoff(self):
+        """HTTP-date Retry-After falls back to exp backoff."""
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _GraphRetriable(
+            response=_mk_graph_retry_response(429, retry_after="Wed, 21 Oct 2015 07:28:00 GMT")
+        )
+        retry_state.attempt_number = 1
+        wait = graph_retry_kwargs["wait"](retry_state)
+        assert 1.0 <= wait <= 4.0
+
+    def test_retry_predicate_matches_graph_retriable(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _GraphRetriable()
+        assert graph_retry_kwargs["retry"](retry_state)
+
+    def test_retry_predicate_rejects_other_exceptions(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = requests.HTTPError("500 Internal")
+        assert not graph_retry_kwargs["retry"](retry_state)
