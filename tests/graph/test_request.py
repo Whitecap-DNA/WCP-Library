@@ -84,3 +84,46 @@ class TestRequestNonRetryable:
             mock_req.return_value = resp
             with pytest.raises(requests.HTTPError):
                 _request("GET", "https://example.com", {})
+
+
+class TestRequestTimeoutConfig:
+    def test_default_is_30_seconds(self, monkeypatch):
+        """_request passes REQUEST_TIMEOUT through to requests.request."""
+        import wcp_library.graph as graph_mod
+        monkeypatch.setattr(graph_mod, "REQUEST_TIMEOUT", 30)
+
+        with patch("wcp_library.graph.requests.request") as mock_req:
+            mock_req.return_value = _ok_response(200)
+            _request("GET", "https://example.com", {})
+
+        # Verify timeout= kwarg matches module-level REQUEST_TIMEOUT.
+        assert mock_req.call_args.kwargs["timeout"] == 30
+
+    def test_set_request_timeout_affects_next_call(self, monkeypatch):
+        import wcp_library.graph as graph_mod
+        monkeypatch.setattr(graph_mod, "REQUEST_TIMEOUT", 30)
+
+        graph_mod.set_request_timeout(120)
+        assert graph_mod.REQUEST_TIMEOUT == 120
+
+        with patch("wcp_library.graph.requests.request") as mock_req:
+            mock_req.return_value = _ok_response(200)
+            _request("GET", "https://example.com", {})
+
+        assert mock_req.call_args.kwargs["timeout"] == 120
+
+    def test_set_request_timeout_rejects_zero(self):
+        from wcp_library.graph import set_request_timeout
+        with pytest.raises(ValueError, match="must be positive"):
+            set_request_timeout(0)
+
+    def test_set_request_timeout_rejects_negative(self):
+        from wcp_library.graph import set_request_timeout
+        with pytest.raises(ValueError, match="must be positive"):
+            set_request_timeout(-5)
+
+    def test_set_request_timeout_accepts_float(self, monkeypatch):
+        import wcp_library.graph as graph_mod
+        monkeypatch.setattr(graph_mod, "REQUEST_TIMEOUT", 30)
+        graph_mod.set_request_timeout(15.5)
+        assert graph_mod.REQUEST_TIMEOUT == 15.5

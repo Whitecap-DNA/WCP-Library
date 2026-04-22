@@ -6,8 +6,24 @@ from pathlib import Path
 
 import requests
 
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 30  # seconds; override via set_request_timeout()
 RENEWAL_THRESHOLD = 60  # minutes
+
+
+def set_request_timeout(seconds: int | float) -> None:
+    """Override the HTTP timeout used by every Graph helper.
+
+    Default is 30 seconds. Call once at application startup to change
+    it for all subsequent Graph requests (``get_headers``, every
+    sharepoint/mail/subscription helper).
+
+    :param seconds: positive timeout in seconds.
+    :raises ValueError: if ``seconds`` is not strictly positive.
+    """
+    global REQUEST_TIMEOUT
+    if seconds <= 0:
+        raise ValueError(f"seconds must be positive, got {seconds!r}")
+    REQUEST_TIMEOUT = seconds
 
 
 def get_headers(app_id: str, app_secret: str, tenant_id: str) -> dict:
