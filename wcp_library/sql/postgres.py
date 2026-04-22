@@ -616,16 +616,14 @@ class PostgresConnection(SyncExecutor):
 
         :return: None
         """
-
-
-        self.connection = _connect_warehouse(self._username, self._password, self._hostname, self._port,
-                                             self._database, self.min_connections, self.max_connections, self.use_pool)
+        connection = _connect_warehouse(self._username, self._password, self._hostname, self._port,
+                                        self._database, self.min_connections, self.max_connections, self.use_pool)
 
         if self.use_pool:
-            self._session_pool = self.connection
+            self._session_pool = connection
             self._session_pool.open()
         else:
-            self._connection = self.connection
+            self._connection = connection
 
     def _get_connection(self) -> Connection:
         """
@@ -682,12 +680,13 @@ class PostgresConnection(SyncExecutor):
         """
 
         connection = self._get_connection()
-        connection.execute(query)
-        if self._autocommit:
-            connection.commit()
-
-        if self.use_pool and self._autocommit:
-            self._session_pool.putconn(connection)
+        try:
+            connection.execute(query)
+            if self._autocommit:
+                connection.commit()
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     @retry
     def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
@@ -700,12 +699,13 @@ class PostgresConnection(SyncExecutor):
         """
 
         connection = self._get_connection()
-        connection.execute(query, packed_values)
-        if self._autocommit:
-            connection.commit()
-
-        if self.use_pool and self._autocommit:
-            self._session_pool.putconn(connection)
+        try:
+            connection.execute(query, packed_values)
+            if self._autocommit:
+                connection.commit()
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     @retry
     def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
@@ -717,18 +717,19 @@ class PostgresConnection(SyncExecutor):
         """
 
         connection = self._get_connection()
-        for item in queries:
-            query = item[0]
-            packed_values = item[1]
-            if packed_values:
-                connection.execute(query, packed_values)
-            else:
-                connection.execute(query)
-        if self._autocommit:
-            connection.commit()
-
-        if self.use_pool and self._autocommit:
-            self._session_pool.putconn(connection)
+        try:
+            for item in queries:
+                query = item[0]
+                packed_values = item[1] if len(item) > 1 else None
+                if packed_values:
+                    connection.execute(query, packed_values)
+                else:
+                    connection.execute(query)
+            if self._autocommit:
+                connection.commit()
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     @retry
     def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
@@ -741,14 +742,15 @@ class PostgresConnection(SyncExecutor):
         """
 
         connection = self._get_connection()
-        connection.prepare_threshold = None
-        cursor = connection.cursor()
-        cursor.executemany(query, dictionary, returning=False)
-        if self._autocommit:
-            connection.commit()
-
-        if self.use_pool and self._autocommit:
-            self._session_pool.putconn(connection)
+        try:
+            connection.prepare_threshold = None
+            cursor = connection.cursor()
+            cursor.executemany(query, dictionary, returning=False)
+            if self._autocommit:
+                connection.commit()
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     @retry
     def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
@@ -761,18 +763,19 @@ class PostgresConnection(SyncExecutor):
         """
 
         connection = self._get_connection()
-        cursor = connection.cursor()
-        if packed_data:
-            cursor.execute(query, packed_data)
-        else:
-            cursor.execute(query)
-        rows = cursor.fetchall()
-        if self._autocommit:
-            connection.commit()
-
-        if self.use_pool and self._autocommit:
-            self._session_pool.putconn(connection)
-        return rows
+        try:
+            cursor = connection.cursor()
+            if packed_data:
+                cursor.execute(query, packed_data)
+            else:
+                cursor.execute(query)
+            rows = cursor.fetchall()
+            if self._autocommit:
+                connection.commit()
+            return rows
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     def commit(self) -> None:
         """Commit the current transaction.
@@ -888,14 +891,13 @@ class PostgresConnection(SyncExecutor):
             return 0
 
         df_subset = df[match_cols].drop_duplicates(keep='first')
-        param_list = []
-        for column in match_cols:
-            param_list.append(f"{column} = %({column})s")
-        params = ' AND '.join(param_list) if len(param_list) > 1 else param_list[0]
 
         table_parts = table_name.split(".")
         table_id = Identifier(*table_parts)
-        query = SQL("DELETE FROM {} WHERE {}").format(table_id, SQL(params))
+        conditions = SQL(" AND ").join(
+            SQL("{} = {}").format(Identifier(c), Placeholder(c)) for c in match_cols
+        )
+        query = SQL("DELETE FROM {} WHERE {}").format(table_id, conditions)
 
         main_dict = df_subset.to_dict('records')
         self.execute_many(query, main_dict)
@@ -920,17 +922,16 @@ class PostgresConnection(SyncExecutor):
 
     def __del__(self) -> None:
         """
-        Destructor
-
-        :return: None
+        Destructor. Uses ``getattr`` fallbacks so a half-initialized
+        instance (e.g., one whose ``__init__`` raised the autocommit+pool
+        guard) doesn't explode during garbage collection.
         """
-
-        if self._session_pool is not None:
-            self._session_pool.close()
-        else:
-            if self._connection is not None and not self._connection.closed:
-                self._connection.close()
-            self._connection = None
+        pool = getattr(self, "_session_pool", None)
+        conn = getattr(self, "_connection", None)
+        if pool is not None:
+            pool.close()
+        elif conn is not None and not conn.closed:
+            conn.close()
 
 
 class AsyncPostgresConnection(AsyncExecutor):
@@ -1046,12 +1047,13 @@ class AsyncPostgresConnection(AsyncExecutor):
         """
 
         connection = await self._get_connection()
-        await connection.execute(query)
-        if self._autocommit:
-            await connection.commit()
-
-        if self.use_pool and self._autocommit:
-            await self._session_pool.putconn(connection)
+        try:
+            await connection.execute(query)
+            if self._autocommit:
+                await connection.commit()
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     @async_retry
     async def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
@@ -1064,12 +1066,13 @@ class AsyncPostgresConnection(AsyncExecutor):
         """
 
         connection = await self._get_connection()
-        await connection.execute(query, packed_values)
-        if self._autocommit:
-            await connection.commit()
-
-        if self.use_pool and self._autocommit:
-            await self._session_pool.putconn(connection)
+        try:
+            await connection.execute(query, packed_values)
+            if self._autocommit:
+                await connection.commit()
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     @async_retry
     async def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
@@ -1081,18 +1084,19 @@ class AsyncPostgresConnection(AsyncExecutor):
         """
 
         connection = await self._get_connection()
-        for item in queries:
-            query = item[0]
-            packed_values = item[1]
-            if packed_values:
-                await connection.execute(query, packed_values)
-            else:
-                await connection.execute(query)
-        if self._autocommit:
-            await connection.commit()
-
-        if self.use_pool and self._autocommit:
-            await self._session_pool.putconn(connection)
+        try:
+            for item in queries:
+                query = item[0]
+                packed_values = item[1] if len(item) > 1 else None
+                if packed_values:
+                    await connection.execute(query, packed_values)
+                else:
+                    await connection.execute(query)
+            if self._autocommit:
+                await connection.commit()
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     @async_retry
     async def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
@@ -1105,14 +1109,15 @@ class AsyncPostgresConnection(AsyncExecutor):
         """
 
         connection = await self._get_connection()
-        connection.prepare_threshold = None
-        cursor = connection.cursor()
-        await cursor.executemany(query, dictionary, returning=False)
-        if self._autocommit:
-            await connection.commit()
-
-        if self.use_pool and self._autocommit:
-            await self._session_pool.putconn(connection)
+        try:
+            connection.prepare_threshold = None
+            cursor = connection.cursor()
+            await cursor.executemany(query, dictionary, returning=False)
+            if self._autocommit:
+                await connection.commit()
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     @async_retry
     async def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
@@ -1125,18 +1130,19 @@ class AsyncPostgresConnection(AsyncExecutor):
         """
 
         connection = await self._get_connection()
-        cursor = connection.cursor()
-        if packed_data:
-            await cursor.execute(query, packed_data)
-        else:
-            await cursor.execute(query)
-        rows = await cursor.fetchall()
-        if self._autocommit:
-            await connection.commit()
-
-        if self.use_pool and self._autocommit:
-            await self._session_pool.putconn(connection)
-        return rows
+        try:
+            cursor = connection.cursor()
+            if packed_data:
+                await cursor.execute(query, packed_data)
+            else:
+                await cursor.execute(query)
+            rows = await cursor.fetchall()
+            if self._autocommit:
+                await connection.commit()
+            return rows
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     async def commit(self) -> None:
         """Commit the current transaction.
@@ -1251,14 +1257,13 @@ class AsyncPostgresConnection(AsyncExecutor):
             return 0
 
         df_subset = df[match_cols].drop_duplicates(keep='first')
-        param_list = []
-        for column in match_cols:
-            param_list.append(f"{column} = %({column})s")
-        params = ' AND '.join(param_list) if len(param_list) > 1 else param_list[0]
 
         table_parts = table_name.split(".")
         table_id = Identifier(*table_parts)
-        query = SQL("DELETE FROM {} WHERE {}").format(table_id, SQL(params))
+        conditions = SQL(" AND ").join(
+            SQL("{} = {}").format(Identifier(c), Placeholder(c)) for c in match_cols
+        )
+        query = SQL("DELETE FROM {} WHERE {}").format(table_id, conditions)
 
         main_dict = df_subset.to_dict('records')
         await self.execute_many(query, main_dict)
