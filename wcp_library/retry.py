@@ -46,3 +46,30 @@ _ORACLE_TRANSIENT         = frozenset({"ORA-08103", "ORA-04021", "ORA-01652"})
 ORACLE_RETRY_CODES        = _ORACLE_CONNECTION_LOSS | _ORACLE_TRANSIENT
 
 GRAPH_RETRIABLE_STATUSES  = frozenset({429, 503, 504})
+
+
+def _extract_full_code(exc: BaseException) -> str | None:
+    """Pull ``full_code`` off the driver's error object if present.
+
+    psycopg and oracledb both put a structured error object as
+    ``exc.args[0]`` with a ``full_code`` attribute. Returns None when
+    the exception doesn't fit that shape.
+    """
+    try:
+        (error_obj,) = exc.args
+    except (ValueError, TypeError):
+        return None
+    if isinstance(error_obj, str):
+        return None
+    return getattr(error_obj, "full_code", None)
+
+
+def _before_sleep_log(retry_state) -> None:
+    """Shared tenacity before_sleep hook; logs retry attempts at INFO."""
+    exc = retry_state.outcome.exception()
+    logger.info(
+        "retry %d: %s -- %s",
+        retry_state.attempt_number,
+        type(exc).__name__,
+        exc,
+    )
