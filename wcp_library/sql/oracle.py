@@ -6,11 +6,12 @@ import pandas as pd
 import oracledb
 from oracledb import ConnectionPool, AsyncConnectionPool, Connection, AsyncConnection
 
-from wcp_library.sql import retry, async_retry
+from tenacity import retry as tenacity_retry
+
+from wcp_library.retry import oracle_retry_kwargs
 
 logger = logging.getLogger(__name__)
 oracledb.defaults.fetch_lobs = False
-oracle_retry_codes = ['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652']
 
 # Pattern for validating Oracle identifiers (prevents SQL injection)
 VALID_IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z][A-Za-z0-9_#$]*(\.[A-Za-z][A-Za-z0-9_#$]*)?$')
@@ -140,11 +141,7 @@ class OracleConnection(object):
         self.min_connections = min_connections
         self.max_connections = max_connections
 
-        self._retry_count = 0
-        self.retry_limit = 50
-        self.retry_error_codes = oracle_retry_codes
-
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def _connect(self) -> None:
         """
         Connect to the warehouse
@@ -210,7 +207,7 @@ class OracleConnection(object):
                 self._connection.close()
             self._connection = None
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def execute(self, query: str) -> None:
         """
         Execute the query
@@ -227,7 +224,7 @@ class OracleConnection(object):
         if self.use_pool:
             self._session_pool.release(connection)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def safe_execute(self, query: str, packed_values: dict) -> None:
         """
         Execute the query without SQL Injection possibility, to be used with external facing projects.
@@ -245,7 +242,7 @@ class OracleConnection(object):
         if self.use_pool:
             self._session_pool.release(connection)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
         """
         Execute multiple queries
@@ -268,7 +265,7 @@ class OracleConnection(object):
         if self.use_pool:
             self._session_pool.release(connection)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def execute_many(self, query: str, dictionary: list[dict]) -> None:
         """
         Execute many queries
@@ -286,7 +283,7 @@ class OracleConnection(object):
         if self.use_pool:
             self._session_pool.release(connection)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def fetch_data(self, query: str, packed_data=None) -> list:
         """
         Fetch the data from the query
@@ -309,7 +306,7 @@ class OracleConnection(object):
             self._session_pool.release(connection)
         return rows
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
@@ -340,7 +337,7 @@ class OracleConnection(object):
         self.execute_many(query, main_dict)
         return len(main_dict)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
@@ -376,7 +373,7 @@ class OracleConnection(object):
         self.execute_many(query, main_dict)
         return len(main_dict)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
@@ -392,7 +389,7 @@ class OracleConnection(object):
         truncate_query = f"TRUNCATE TABLE {quoted_table}"
         self.execute(truncate_query)
 
-    @retry
+    @tenacity_retry(**oracle_retry_kwargs)
     def empty_table(self, table_name: str) -> None:
         """
         Empty the table
@@ -462,11 +459,7 @@ class AsyncOracleConnection(object):
         self.min_connections = min_connections
         self.max_connections = max_connections
 
-        self._retry_count = 0
-        self.retry_limit = 50
-        self.retry_error_codes = oracle_retry_codes
-
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def _connect(self) -> None:
         """
         Connect to the warehouse
@@ -533,7 +526,7 @@ class AsyncOracleConnection(object):
                 await self._connection.close()
             self._connection = None
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def execute(self, query: str) -> None:
         """
         Execute the query
@@ -550,7 +543,7 @@ class AsyncOracleConnection(object):
         if self.use_pool:
             await self._session_pool.release(connection)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def safe_execute(self, query: str, packed_values: dict) -> None:
         """
         Execute the query without SQL Injection possibility, to be used with external facing projects.
@@ -568,7 +561,7 @@ class AsyncOracleConnection(object):
         if self.use_pool:
             await self._session_pool.release(connection)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:
         """
         Execute multiple queries
@@ -591,7 +584,7 @@ class AsyncOracleConnection(object):
         if self.use_pool:
             await self._session_pool.release(connection)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def execute_many(self, query: str, dictionary: list[dict]) -> None:
         """
         Execute many queries
@@ -609,7 +602,7 @@ class AsyncOracleConnection(object):
         if self.use_pool:
             await self._session_pool.release(connection)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def fetch_data(self, query: str, packed_data=None) -> list:
         """
         Fetch the data from the query
@@ -632,7 +625,7 @@ class AsyncOracleConnection(object):
             await self._session_pool.release(connection)
         return rows
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
         """
         Remove matching data from the warehouse
@@ -663,7 +656,7 @@ class AsyncOracleConnection(object):
         await self.execute_many(query, main_dict)
         return len(main_dict)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
         """
         Export the DataFrame to the warehouse
@@ -699,7 +692,7 @@ class AsyncOracleConnection(object):
         await self.execute_many(query, main_dict)
         return len(main_dict)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def truncate_table(self, table_name: str) -> None:
         """
         Truncate the table
@@ -715,7 +708,7 @@ class AsyncOracleConnection(object):
         truncate_query = f"TRUNCATE TABLE {quoted_table}"
         await self.execute(truncate_query)
 
-    @async_retry
+    @tenacity_retry(**oracle_retry_kwargs)
     async def empty_table(self, table_name: str) -> None:
         """
         Empty the table
