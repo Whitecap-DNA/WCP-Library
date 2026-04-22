@@ -1,6 +1,6 @@
 [project]
 name = "wcp-library"
-version = "1.10.1"
+version = "1.11.0"
 description = "Common utilites for internal development at WCP"
 authors = [{ name = "Mitch-Petersen", email = "mitch.petersen@wcap.ca" }]
 readme = "README.md"
@@ -34,7 +34,17 @@ yarl = "^1.20.0"
 mypy = "^1.8.0"
 ruff = "^0.1.0"
 black = "^26.3.1"
+pytest = "^8.3.0"
+pytest-asyncio = "^0.25.0"
+pytest-mock = "^3.14.0"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

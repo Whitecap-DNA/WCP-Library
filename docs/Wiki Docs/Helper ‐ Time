@@ -1,0 +1,67 @@
+This portion of the library helper for time functions and time zone conversions.
+
+This class uses [pytz](https://pypi.org/project/pytz/) as it's backbone.
+
+There are two different types of datetimes in python, one is time zone aware, the other is time zone naïve. The naïve variant doesn't contain any time zone information, it's just a date and time, with no associated time zone information. The aware version has time zone information attached.
+
+It's important to note, you can't compare an aware to a naïve time in python, it will raise errors.
+
+
+## Methods
+### get_current_time
+
+`def get_current_time(aware: bool=False, tz: str='Canada/Mountain') -> datetime:`
+
+Gets the current time.
+
+Optionally, you can specify a time zone from [here](https://gist.github.com/heyalexej/8bf688fd67d7199be4a1682b3eec7568).
+
+```
+from wcp_library.time import get_current_time
+
+current_time_naive = get_current_time()
+current_time_aware = get_current_time(aware=True)
+```
+
+### convert_tz
+
+`def convert_tz(time: datetime, original_tz: str, aware: bool=False, tz: str='Canada/Mountain') -> datetime:`
+
+Converts a datetime to the local (or otherwise specified) time zone.
+
+```
+from wcp_library.time import convert_tz
+
+utc_time = <some UTC datetime>
+local_time = convert_tz(utc_time, "UTC")
+```
+
+### get_utc_timestamp
+
+`def get_utc_timestamp(time: datetime, original_tz: str='Canada/Mountain') -> int:`
+
+Converts the provided datetime (with optionally specified original time zone) to a UTC integer timestamp.
+
+```
+from datetime import datetime
+
+from wcp_library.time import get_utc_timestamp
+
+datetime_example = datetime.now()
+utc_timestamp = get_utc_timestamp(datetime_example)
+```
+
+### get_local_timestamp
+
+`def get_local_timestamp(time: datetime, original_tz: str='Canada/Mountain') -> int:`
+
+Converts the provided datetime (with optionally specified original time zone) to a local time zone oriental integer timestamp.
+
+```
+from datetime import datetime
+
+from wcp_library.time import get_local_timestamp
+
+datetime_example = datetime.now()
+local_timestamp = get_local_timestamp(datetime_example)
+```

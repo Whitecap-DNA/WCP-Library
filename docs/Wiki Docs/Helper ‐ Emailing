@@ -1,0 +1,182 @@
+# Email Utility Module
+
+This module provides functions to send emails with optional HTML formatting and attachments using Python's built-in smtplib and email libraries. It is designed for internal use within the WCAP environment.
+
+## Overview
+
+This module is instantiated using the `MailServer` class. It requires the vault's internet API key and the credential ID for the SMTP2GO entry in the vault (see Mitch for details). Credentials are fetched from an `InternetCredentialManager` at construction time.
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "Test Email",
+           "This is a plain text email.")
+```
+
+The module includes:
+
+- A core method `send_email()` for sending emails with flexible options.
+- A convenience wrapper `email_reporting()` for sending plain-text notifications to the internal Reporting distribution list.
+
+## Classes
+
+### MailServer
+
+#### Signature
+
+```
+MailServer(internet_password_key: str, smtp2go_credential_id: int)
+```
+
+#### Description
+
+Construct a `MailServer` instance wired to SMTP2GO. Credentials are pulled from an `InternetCredentialManager` initialised with `internet_password_key`; the SMTP username and password are looked up by `smtp2go_credential_id`.
+
+Outbound mail is sent via `mail.smtp2go.com` on port `587` using `STARTTLS`.
+
+#### Parameters
+
+- `internet_password_key` (str): The vault API key used to initialise an `InternetCredentialManager`.
+- `smtp2go_credential_id` (int): The vault entry ID for the SMTP2GO credential.
+
+## Methods
+
+### send_email()
+
+#### Signature
+
+```
+send_email(
+    sender: str,
+    recipients: list[str] | str,
+    subject: str,
+    body: str,
+    body_type: str = "plain",
+    attachments: list[Path | tuple[str, bytes]] | None = None,
+    cc: list[str] | str | None = None,
+    bcc: list[str] | str | None = None,
+) -> None
+```
+
+#### Description
+
+Sends an email with optional HTML body, attachments, and CC / BCC recipients.
+
+#### Parameters
+
+- `sender` (str): Email address of the sender. Must be in the approved-senders list: `python@wcap.ca`, `workflow@wcap.ca`, `reports@wcap.ca`. Any other sender raises `ValueError`.
+- `recipients` (list[str] | str): A single recipient address or a list of addresses.
+- `subject` (str): Subject line of the email.
+- `body` (str): Email body text (plain text or HTML depending on `body_type`).
+- `body_type` (str): `"plain"` (default) or `"html"`.
+- `attachments` (list[Path | tuple[str, bytes]] | None): Optional list of attachments. Each item is either a `pathlib.Path` pointing to an existing file (read from disk) or a `(filename, raw_bytes)` tuple (attached in-memory).
+- `cc` (list[str] | str | None): Optional carbon-copy recipients — same shape as `recipients`.
+- `bcc` (list[str] | str | None): Optional blind carbon-copy recipients — same shape as `recipients`.
+
+#### Raises
+
+- `ValueError`: If `sender` is not in the approved-senders list, or any address (sender, recipient, cc, or bcc) fails the `EMAIL_PATTERN` format check.
+- `FileNotFoundError`: If a `Path` attachment does not exist on disk.
+- `TypeError`: If an attachment item is neither a `Path` nor a `(str, bytes)` tuple.
+
+#### Behavior
+
+- Validates `sender` against the approved-senders list.
+- Normalises `recipients`, `cc`, and `bcc` into lists and validates each address.
+- Builds a `MIMEMultipart` message and attaches body as plain text or HTML.
+- Adds attachments (from disk `Path` or in-memory `(filename, bytes)` tuple).
+- Sends via `mail.smtp2go.com:587` with `STARTTLS`, authenticating using the SMTP2GO credentials fetched from the vault.
+
+### email_reporting()
+
+#### Signature
+
+```
+email_reporting(subject: str, body: str) -> None
+```
+
+#### Description
+
+Shortcut for sending a plain-text email to the internal Reporting distribution list.
+
+#### Parameters
+
+- `subject` (str): Email subject.
+- `body` (str): Plain-text email body.
+
+#### Behavior
+
+- Uses `send_email()` internally.
+- Sender: `python@wcap.ca`
+- Recipient: `Reporting@wcap.ca`
+
+## Usage Examples
+
+### Send a plain text email
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "Test Email",
+           "This is a plain text email.")
+```
+
+### Send an HTML email
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "HTML Email",
+           "<h1>Hello</h1><p>This is an HTML email.</p>",
+           body_type="html")
+```
+
+### Send with CC and BCC
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "Team Update",
+           "Heads up, team.",
+           cc=["manager@wcap.ca"],
+           bcc="audit@wcap.ca")
+```
+
+### Send with a file attachment from disk
+
+```
+from pathlib import Path
+
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "Report",
+           "Please find the attached report.",
+           attachments=[Path("report.pdf"), Path("data.csv")])
+```
+
+### Send with an in-memory attachment
+
+Pass a `(filename, bytes)` tuple to attach data that lives only in memory (e.g. a dataframe rendered as CSV bytes, a generated PDF, etc.).
+
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+
+csv_bytes = df.to_csv(index=False).encode("utf-8")
+
+mail_server.send_email("python@wcap.ca",
+           ["user@wcap.ca"],
+           "Daily Extract",
+           "Attached is today's extract.",
+           attachments=[("daily_extract.csv", csv_bytes)])
+```
+
+### Send a reporting email
+```
+mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
+mail_server.email_reporting("Reporting report", "This is a log message")
+```

@@ -1,0 +1,401 @@
+# OracleConnection
+
+The OracleConnection is a connection manager for oracle.
+
+It's initiated by calling it, and then calling it's set user method.
+
+Optionally, you can pass it a bool and two integers: use_pool, max_connections and min_connections
+
+Passing these arguments (specifically if use_pool is True) it'll use a connection pool instead of a singular connection.
+
+***
+
+
+Every method besides set_user has a retry wrapper.
+
+The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+
+It will only retry the method when it runs into an error code in the following list: ['[ORA-01033](https://docs.oracle.com/en/error-help/db/ora-01033/?r=23ai)', '[DPY-6005](https://python-oracledb.readthedocs.io/en/latest/release_notes.html#id37)', '[DPY-4011](https://python-oracledb.readthedocs.io/en/latest/user_guide/troubleshooting.html#dpy-4011)', 'ORA-08103', 'ORA-04021', 'ORA-01652']
+
+These error codes are associated with Oracle shutting down/restarting/being unreachable, plus transient row-not-found, library-lock-busy, and tablespace-full conditions.
+
+## Methods
+### set_user
+
+`def set_user(self, credentials_dict: dict) -> None:`
+
+Set user, activates the connection to Oracle using the credential information contained within the parameter credential dict.
+
+This must contain the key/value pairs:
+* UserName
+* Password
+* Host
+* Port
+* Service or SID
+
+```
+from wcp_library.credentials.oracle import OracleCredentialManager
+from wcp_library.sql.oracle import OracleConnection
+
+CredentialsManager = OracleCredentialManager(<API_KEY>)
+credentials = CredentialsManager.get_credentials(<oracle username>)
+
+Oracle_Connection = OracleConnection()
+Oracle_Connection.set_user(credentials)
+```
+
+### execute
+
+`def execute(self, query: str) -> None:`
+
+Executes the parameter query.
+
+```
+OracleConnection.execute(query='Test_Query_With_No_Return')
+```
+
+### safe_execute
+
+`def safe_execute(self, query: str, packed_values: dict) -> None:`
+
+Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection.
+
+This is primarily a method focused for use on external facing programs.
+
+```
+query = """DELETE FROM TEST WHERE test_col=:test"""
+values = {test: 1}
+
+OracleConnection.safe_execute(query=query, packed_values=values)
+```
+
+### execute_multiple
+
+`def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:`
+
+This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility.
+
+```
+query_1 = """DELETE FROM TEST WHERE test_col=:test"""
+values_1 = {"test": 1}
+
+query_2 = """DELETE FROM TEST_2 WHERE test_col=:test"""
+values_2 = {"test": 1}
+
+queries = [[query_1, values_1], [query_2, values_2]]
+
+OracleConnection.execute_multiple(queries=queries)
+```
+
+### execute_many
+
+`def execute_many(self, query: str, dictionary: list[dict]) -> None:`
+
+Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking.
+
+More information about ExecuteMany (the method behind this method) is:
+
+Prepare a statement for execution against a database and then execute it against all parameter mappings or sequences found in the sequence parameters.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+export_dict = data_df.to_dict('records')
+query = """INSERT INTO test_table (col_1, col_2) VALUES (:col_1, :col_2)"""
+
+OracleConnection.execute_many(query=query, dictionary=export_dict)
+```
+
+### fetch_data
+
+`def fetch_data(self, query: str, packed_data=None) -> list:`
+
+Executes query, and returns the result
+
+```
+query = <SQL Query Object>
+result = OracleConnection.fetch_data(query)
+```
+
+### remove_matching_data
+
+`def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:`
+
+This function removes data from the table that matches the column entries in the DataFrame.
+
+As an example, if the DataFrame has columns: UWI, DATE, DATA
+
+We can use this function along with match_cols [UWI, DATE] to remove entries in the table that have matching data pairs to that in the DataFrame.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+OracleConnection.remove_matching_data(df=data_df, table_name="test_table", match_cols=['col_1'])
+```
+
+### export_df_to_warehouse
+
+`def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
+
+"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Oracle-Connection#execute_many) that does the work for you, to export a pandas dataframe to the Oracle database.
+
+It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
+
+Oracle often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+OracleConnection.export_df_to_warehouse(df=data_df, table_name="test_table", columns=data_df.columns, remove_nan=True)
+```
+
+### truncate_table
+
+`def truncate_table(self, table_name: str) -> None:`
+
+Simple method to truncate a table. Accepts a table name as a parameter.
+
+```
+OracleConnection.truncate_table(table_name="test_table")
+```
+
+### empty_table
+
+`def empty_table(self, table_name: str) -> None:`
+
+Simple method to empty a table. Accepts a table name as a parameter.
+
+```
+OracleConnection.empty_table(table_name="test_table")
+```
+
+### close_connection
+
+`def close_connection(self) -> None:`
+
+Close the pool (if pooled) or the single connection. Also runs on context-manager exit when using `with OracleConnection() as conn:` / `async with AsyncOracleConnection() as conn:`.
+
+`OracleConnection` is also usable as a context manager:
+
+```
+with OracleConnection() as conn:
+    conn.set_user(credentials)
+    conn.execute(query)
+# conn.close_connection() called automatically on exit.
+```
+
+# AsyncOracleConnection
+
+The AsyncOracleConnection is an async connection manager for oracle.
+
+It's initiated by calling it, and then calling it's set user method.
+
+Optionally, you can pass it a bool and two integers: use_pool, max_connections and min_connections
+
+Passing these arguments (specifically if use_pool is True) it'll use a connection pool instead of a singular connection.
+
+***
+
+
+Every method besides set_user has a retry wrapper.
+
+The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+
+It will only retry the method when it runs into an error code in the following list: ['[ORA-01033](https://docs.oracle.com/en/error-help/db/ora-01033/?r=23ai)', '[DPY-6005](https://python-oracledb.readthedocs.io/en/latest/release_notes.html#id37)', '[DPY-4011](https://python-oracledb.readthedocs.io/en/latest/user_guide/troubleshooting.html#dpy-4011)', 'ORA-08103', 'ORA-04021', 'ORA-01652']
+
+These error codes are associated with Oracle shutting down/restarting/being unreachable, plus transient row-not-found, library-lock-busy, and tablespace-full conditions.
+
+## Methods
+### set_user
+
+`async def set_user(self, credentials_dict: dict) -> None:`
+
+Set user, activates the connection to Oracle using the credential information contained within the parameter credential dict.
+
+This must contain the key/value pairs:
+* UserName
+* Password
+* Host
+* Port
+* Service or SID
+
+```
+from wcp_library.credentials.oracle import AsyncOracleCredentialManager
+from wcp_library.sql.oracle import AsyncOracleConnection
+
+CredentialsManager = AsyncOracleCredentialManager(<API_KEY>)
+credentials = await CredentialsManager.get_credentials(<oracle username>)
+
+OracleConnection = AsyncOracleConnection()
+await OracleConnection.set_user(credentials)
+```
+
+### execute
+
+`async def execute(self, query: str) -> None:`
+
+Executes the parameter query.
+
+```
+await OracleConnection.execute(query='Test_Query_With_No_Return')
+```
+
+### safe_execute
+
+`async def safe_execute(self, query: str, packed_values: dict) -> None:`
+
+Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection.
+
+This is primarily a method focused for use on external facing programs.
+
+```
+query = """DELETE FROM TEST WHERE test_col=:test"""
+values = {test: 1}
+
+await OracleConnection.safe_execute(query=query, packed_values=values)
+```
+
+### execute_multiple
+
+`async def execute_multiple(self, queries: list[tuple[str, dict]]) -> None:`
+
+This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility.
+
+```
+query_1 = """DELETE FROM TEST WHERE test_col=:test"""
+values_1 = {"test": 1}
+
+query_2 = """DELETE FROM TEST_2 WHERE test_col=:test"""
+values_2 = {"test": 1}
+
+queries = [[query_1, values_1], [query_2, values_2]]
+
+await OracleConnection.execute_multiple(queries=queries)
+```
+
+### execute_many
+
+`async def execute_many(self, query: str, dictionary: list[dict]) -> None:`
+
+Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking.
+
+More information about ExecuteMany (the method behind this method) is:
+
+Prepare a statement for execution against a database and then execute it against all parameter mappings or sequences found in the sequence parameters.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+export_dict = data_df.to_dict('records')
+query = """INSERT INTO test_table (col_1, col_2) VALUES (:col_1, :col_2)"""
+
+await OracleConnection.execute_many(query=query, dictionary=export_dict)
+```
+
+### fetch_data
+
+`async def fetch_data(self, query: str, packed_data=None) -> list:`
+
+Executes query, and returns the result
+
+```
+query = <SQL Query Object>
+result = await OracleConnection.fetch_data(query)
+```
+
+### remove_matching_data
+
+`async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:`
+
+This function removes data from the table that matches the column entries in the DataFrame.
+
+As an example, if the DataFrame has columns: UWI, DATE, DATA
+
+We can use this function along with match_cols [UWI, DATE] to remove entries in the table that have matching data pairs to that in the DataFrame.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+await OracleConnection.remove_matching_data(df=data_df, table_name="test_table", match_cols=['col_1'])
+```
+
+### export_df_to_warehouse
+
+`async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
+
+"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Oracle-Connection#execute_many-1) that does the work for you, to export a pandas dataframe to the Oracle database.
+
+It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
+
+Oracle often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
+
+```
+import pandas as pd
+
+data = [{"col_1": "value_1", "col_2": "value_2"}, {"col_1": "value_3", "col_2": "value_4"}]
+data_df = pd.DataFrame(data)
+
+...
+
+await OracleConnection.export_df_to_warehouse(df=data_df, table_name="test_table", columns=data_df.columns, remove_nan=True)
+```
+
+### truncate_table
+
+`async def truncate_table(self, table_name: str) -> None:`
+
+Simple method to truncate a table. Accepts a table name as a parameter.
+
+```
+await OracleConnection.truncate_table(table_name="test_table")
+```
+
+### empty_table
+
+`async def empty_table(self, table_name: str) -> None:`
+
+Simple method to empty a table. Accepts a table name as a parameter.
+
+```
+await OracleConnection.empty_table(table_name="test_table")
+```
+
+### close_connection
+
+`async def close_connection(self) -> None:`
+
+Close the pool (if pooled) or the single connection. Also runs on context-manager exit when using `with OracleConnection() as conn:` / `async with AsyncOracleConnection() as conn:`.
+
+`AsyncOracleConnection` is also usable as a context manager:
+
+```
+async with AsyncOracleConnection() as conn:
+    await conn.set_user(credentials)
+    await conn.execute(query)
+# conn.close_connection() called automatically on exit.
+```

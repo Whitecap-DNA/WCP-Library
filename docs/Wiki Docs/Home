@@ -1,0 +1,26 @@
+Welcome to the WCP-Library wiki!
+
+This is a generic do-all library for common utilities used in WCAP development.
+
+Subsections:
+
+Please see [this](https://github.com/Whitecap-DNA/WCP-Library/wiki/%23Extra-Uses) first for common extraneous uses.
+
+1. Credential Management ([Sync](https://github.com/Whitecap-DNA/WCP-Library/wiki/Credentials-%E2%80%90-Synchronous), [Async](https://github.com/Whitecap-DNA/WCP-Library/wiki/Credentials-%E2%80%90-Asynchronous))
+    1. API's
+    2. FTP
+    3. Internet
+    4. Oracle
+    5. Postgres
+2. SQL Interaction
+    1. Oracle ([Synchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Oracle#oracleconnection), [Asynchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Oracle#asyncoracleconnection))
+    2. Postgres ([Synchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Postgres#postgresconnection), [Asynchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Postgres#asyncpostgresconnection))
+3. FTP Interaction
+    1. [FTP](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-FTP-SFTP#ftp)
+    2. [SFTP](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-FTP-SFTP#sftp)
+4. [Emailing](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Emailing#emailing)
+5. [Informatica](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Informatica-API)
+6. [Logging](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Logging)
+7. [Time](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Time)
+8. [Browser Automation](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Browser-Automation)
+9. [Microsoft Graph API](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Microsoft-Graph-API)
