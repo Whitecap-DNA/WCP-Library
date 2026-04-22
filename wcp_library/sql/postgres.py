@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
 
@@ -10,7 +12,14 @@ from psycopg.conninfo import make_conninfo
 from psycopg.sql import Composed, Identifier, Placeholder, SQL
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
 
-from wcp_library.sql import retry, async_retry
+from wcp_library.sql import (
+    _RETRY_SLEEP_SECONDS,
+    _log_giveup,
+    _log_retry,
+    async_retry,
+    classify_db_exception,
+    retry,
+)
 
 logger = logging.getLogger(__name__)
 postgres_retry_codes = ['08001', '08004', '40P01']
@@ -804,21 +813,23 @@ class PostgresConnection(SyncExecutor):
         :yield: a :class:`Transaction` bound to the held connection.
         """
         connection = self._get_connection()
-        prior_autocommit = connection.autocommit
         try:
-            connection.autocommit = False
-            tx = Transaction(self, connection)
-            with connection.transaction():
-                yield tx
-                # If tx.commit() / tx.rollback() was called, the native
-                # transaction context manager sees no active transaction
-                # and its own commit/rollback becomes a no-op.
-        finally:
+            prior_autocommit = connection.autocommit
             try:
-                connection.autocommit = prior_autocommit
+                connection.autocommit = False
+                tx = Transaction(self, connection)
+                with connection.transaction():
+                    yield tx
+                    # If tx.commit() / tx.rollback() was called, the native
+                    # transaction context manager sees no active transaction
+                    # and its own commit/rollback becomes a no-op.
             finally:
-                if self.use_pool:
-                    self._session_pool.putconn(connection)
+                connection.autocommit = prior_autocommit
+        finally:
+            # Outermost finally guarantees the pool gets its connection back
+            # even if reading/restoring autocommit raises.
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     def retry_transaction(self, fn):
         """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
@@ -840,53 +851,21 @@ class PostgresConnection(SyncExecutor):
         :raises: the final exception if all attempts fail, or any non-
             retriable error immediately
         """
-        import oracledb
-        from time import sleep
-
         self._retry_count = 0
         while True:
             try:
                 with self.transaction() as tx:
                     return fn(tx)
-            except (
-                oracledb.OperationalError,
-                oracledb.DatabaseError,
-                psycopg.OperationalError,
-            ) as e:
-                if isinstance(e, (
-                    oracledb.OperationalError,
-                    oracledb.DatabaseError,
-                    psycopg.OperationalError,
-                    psycopg.DatabaseError,
-                )):
-                    error_obj, = e.args
-                    if isinstance(error_obj, str):
-                        raise e
-                    elif (
-                        error_obj.full_code in self.retry_error_codes
-                        and self._retry_count < self.retry_limit
-                    ):
-                        self._retry_count += 1
-                        logger.debug(f"Database connection error: {error_obj.full_code}")
-                        logger.debug(f"Error message: {error_obj.message}")
-                        logger.info(
-                            f"Retry attempt {self._retry_count}/{self.retry_limit}. "
-                            f"Waiting 5 minutes before retrying transaction"
-                        )
-                        sleep(300)
-                    else:
-                        if error_obj.full_code not in self.retry_error_codes:
-                            logger.error(
-                                f"Non-retryable database error: {error_obj.full_code}"
-                            )
-                        else:
-                            logger.error(
-                                f"Retry limit ({self.retry_limit}) reached for "
-                                f"error: {error_obj.full_code}"
-                            )
-                        raise e
-                else:
-                    raise e
+            except (psycopg.OperationalError, psycopg.DatabaseError) as e:
+                action, full_code, message = classify_db_exception(e, self.retry_error_codes)
+                if action == "raise":
+                    raise
+                if action == "non_retriable" or self._retry_count >= self.retry_limit:
+                    _log_giveup(full_code, self.retry_limit, action)
+                    raise
+                self._retry_count += 1
+                _log_retry(self._retry_count, self.retry_limit, full_code, message, "transaction")
+                time.sleep(_RETRY_SLEEP_SECONDS)
 
     @retry
     def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
@@ -981,7 +960,7 @@ class AsyncPostgresConnection(AsyncExecutor):
         self._username: str | None = None
         self._password: str | None = None
         self._hostname: str | None = None
-        self._port: str | None = None
+        self._port: int | None = None
         self._database: str | None = None
         self._connection: AsyncConnection | None = None
         self._session_pool: AsyncConnectionPool | None = None
@@ -1199,21 +1178,23 @@ class AsyncPostgresConnection(AsyncExecutor):
         :yield: an :class:`AsyncTransaction` bound to the held connection.
         """
         connection = await self._get_connection()
-        prior_autocommit = connection.autocommit
         try:
-            await connection.set_autocommit(False)
-            tx = AsyncTransaction(self, connection)
-            async with connection.transaction():
-                yield tx
-                # If tx.commit() / tx.rollback() was called, the native
-                # transaction context manager sees no active transaction
-                # and its own commit/rollback becomes a no-op.
-        finally:
+            prior_autocommit = connection.autocommit
             try:
-                await connection.set_autocommit(prior_autocommit)
+                await connection.set_autocommit(False)
+                tx = AsyncTransaction(self, connection)
+                async with connection.transaction():
+                    yield tx
+                    # If tx.commit() / tx.rollback() was called, the native
+                    # transaction context manager sees no active transaction
+                    # and its own commit/rollback becomes a no-op.
             finally:
-                if self.use_pool:
-                    await self._session_pool.putconn(connection)
+                await connection.set_autocommit(prior_autocommit)
+        finally:
+            # Outermost finally guarantees the pool gets its connection back
+            # even if reading/restoring autocommit raises.
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
 
     async def retry_transaction(self, fn):
         """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
@@ -1233,53 +1214,21 @@ class AsyncPostgresConnection(AsyncExecutor):
         :raises: the final exception if all attempts fail, or any non-
             retriable error immediately
         """
-        import asyncio
-        import oracledb
-
         self._retry_count = 0
         while True:
             try:
                 async with self.transaction() as tx:
                     return await fn(tx)
-            except (
-                oracledb.OperationalError,
-                oracledb.DatabaseError,
-                psycopg.OperationalError,
-            ) as e:
-                if isinstance(e, (
-                    oracledb.OperationalError,
-                    oracledb.DatabaseError,
-                    psycopg.OperationalError,
-                    psycopg.DatabaseError,
-                )):
-                    error_obj, = e.args
-                    if isinstance(error_obj, str):
-                        raise e
-                    elif (
-                        error_obj.full_code in self.retry_error_codes
-                        and self._retry_count < self.retry_limit
-                    ):
-                        self._retry_count += 1
-                        logger.debug(f"Database connection error: {error_obj.full_code}")
-                        logger.debug(f"Error message: {error_obj.message}")
-                        logger.info(
-                            f"Retry attempt {self._retry_count}/{self.retry_limit}. "
-                            f"Waiting 5 minutes before retrying transaction"
-                        )
-                        await asyncio.sleep(300)
-                    else:
-                        if error_obj.full_code not in self.retry_error_codes:
-                            logger.error(
-                                f"Non-retryable database error: {error_obj.full_code}"
-                            )
-                        else:
-                            logger.error(
-                                f"Retry limit ({self.retry_limit}) reached for "
-                                f"error: {error_obj.full_code}"
-                            )
-                        raise e
-                else:
-                    raise e
+            except (psycopg.OperationalError, psycopg.DatabaseError) as e:
+                action, full_code, message = classify_db_exception(e, self.retry_error_codes)
+                if action == "raise":
+                    raise
+                if action == "non_retriable" or self._retry_count >= self.retry_limit:
+                    _log_giveup(full_code, self.retry_limit, action)
+                    raise
+                self._retry_count += 1
+                _log_retry(self._retry_count, self.retry_limit, full_code, message, "transaction")
+                await asyncio.sleep(_RETRY_SLEEP_SECONDS)
 
     @async_retry
     async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
