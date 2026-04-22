@@ -4,9 +4,11 @@ The PostgresConnection is a connection manager for Postgres.
 
 It's initiated by calling it, and then calling it's set user method.
 
-Optionally, you can pass it a bool and two integers: use_pool, max_connections and min_connections
-
-Passing these arguments (specifically if use_pool is True) it'll use a connection pool instead of a singular connection.
+Optionally, you can pass it the following keyword arguments:
+* `use_pool: bool = False` — use a connection pool instead of a singular connection
+* `min_connections: int = 2` — pool minimum size (when `use_pool=True`)
+* `max_connections: int = 5` — pool maximum size (when `use_pool=True`)
+* `autocommit: bool = True` — when `True` (default), primitives commit per call (today's behavior). When `False`, primitives do NOT commit; caller drives the transaction via `commit()` / `rollback()`. Combining `use_pool=True` with `autocommit=False` is rejected at construction — use `transaction()` for pooled transactional work.
 
 ***
 
@@ -15,9 +17,9 @@ Every method besides set_user has a retry wrapper.
 
 The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
 
-It will only retry the method when it runs into an error code in the following list: [['08001', '08004']](https://www.postgresql.org/docs/8.2/errcodes-appendix.html)
+It will only retry the method when it runs into an error code in the following list: [['08001', '08004', '40P01']](https://www.postgresql.org/docs/current/errcodes-appendix.html)
 
-These error codes are associated with Postgres shutting down/restarting/being unreachable.
+These error codes are associated with Postgres shutting down/restarting/being unreachable, plus serialization/deadlock conflicts (`40P01`).
 
 ## Methods
 ### set_user
@@ -212,15 +214,81 @@ Simple method to empty a table. Accepts a table name as a parameter.
 PostgresConnection.empty_table(tableName="test_table")
 ```
 
+### commit
+
+`def commit(self) -> None:`
+
+Commit the current transaction. Only meaningful when the connection was constructed with `autocommit=False`; no-op if no connection has been opened yet.
+
+```
+conn = PostgresConnection(autocommit=False)
+conn.set_user(credentials)
+conn.execute("INSERT INTO foo VALUES (...)")
+conn.execute("INSERT INTO bar VALUES (...)")
+conn.commit()
+```
+
+### rollback
+
+`def rollback(self) -> None:`
+
+Rollback the current transaction. Only meaningful when `autocommit=False`; no-op if no connection has been opened yet.
+
+```
+try:
+    conn.execute("INSERT INTO foo VALUES (...)")
+    conn.execute("INSERT INTO bar VALUES (...)")
+    conn.commit()
+except Exception:
+    conn.rollback()
+    raise
+```
+
+### transaction
+
+`@contextmanager def transaction(self) -> Iterator[Transaction]:`
+
+Enter a transactional context on a single held physical connection. Yields a `Transaction` handle that exposes the same executor surface as the connection (primitives + warehouse composites). Commits on normal exit, rolls back on exception. When `use_pool=True`, the connection is returned to the pool at exit.
+
+```
+with Postgres_Connection.transaction() as tx:
+    tx.execute("SET LOCAL ROLE some_role")
+    tx.execute("CREATE TABLE ...")
+    tx.upsert_df_to_warehouse(df, "target", cols, match_cols)
+# Commit on normal exit; rollback on exception.
+```
+
+Manual termination is available — `tx.commit()` / `tx.rollback()` end the transaction early; the context manager's commit/rollback-on-exit becomes a no-op.
+
+Nested transactions are supported via psycopg3's native `SAVEPOINT` mechanism.
+
+### retry_transaction
+
+`def retry_transaction(self, fn: Callable[[Transaction], T]) -> T:`
+
+Run `fn(tx)` inside a transaction with retry applied at the transaction boundary. Uses the same retry policy as the per-method decorator (retriable Postgres errors → 5-minute wait → fresh transaction), but the entire block rolls back and re-enters atomically. Non-retriable errors propagate immediately.
+
+Use for DDL blocks, truncate+insert replacements, or reconciliation deletes where the whole block should retry rather than a single statement.
+
+```
+def rebuild_table(tx):
+    tx.truncate_table("reporting_snapshot")
+    tx.upsert_df_to_warehouse(df, "reporting_snapshot", cols, match_cols)
+
+Postgres_Connection.retry_transaction(rebuild_table)
+```
+
 # AsyncPostgresConnection
 
 The AsyncPostgresConnection is an async connection manager for Postgres.
 
 It's initiated by calling it, and then calling it's set user method.
 
-Optionally, you can pass it a bool and two integers: use_pool, max_connections and min_connections
-
-Passing these arguments (specifically if use_pool is True) it'll use a connection pool instead of a singular connection.
+Optionally, you can pass it the following keyword arguments:
+* `use_pool: bool = False` — use a connection pool instead of a singular connection
+* `min_connections: int = 2` — pool minimum size (when `use_pool=True`)
+* `max_connections: int = 5` — pool maximum size (when `use_pool=True`)
+* `autocommit: bool = True` — when `True` (default), primitives commit per call (today's behavior). When `False`, primitives do NOT commit; caller drives the transaction via `await commit()` / `await rollback()`. Combining `use_pool=True` with `autocommit=False` is rejected at construction — use `transaction()` for pooled transactional work.
 
 ***
 
@@ -229,9 +297,9 @@ Every method besides set_user has a retry wrapper.
 
 The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
 
-It will only retry the method when it runs into an error code in the following list: [['08001', '08004']](https://www.postgresql.org/docs/8.2/errcodes-appendix.html)
+It will only retry the method when it runs into an error code in the following list: [['08001', '08004', '40P01']](https://www.postgresql.org/docs/current/errcodes-appendix.html)
 
-These error codes are associated with Postgres shutting down/restarting/being unreachable.
+These error codes are associated with Postgres shutting down/restarting/being unreachable, plus serialization/deadlock conflicts (`40P01`).
 
 ## Methods
 ### set_user
@@ -418,3 +486,77 @@ Simple method to empty a table. Accepts a table name as a parameter.
 ```
 await PostgresConnection.empty_table(tableName="test_table")
 ```
+
+### commit
+
+`async def commit(self) -> None:`
+
+Commit the current transaction. Only meaningful when the connection was constructed with `autocommit=False`; no-op if no connection has been opened yet.
+
+```
+conn = AsyncPostgresConnection(autocommit=False)
+await conn.set_user(credentials)
+await conn.execute("INSERT INTO foo VALUES (...)")
+await conn.execute("INSERT INTO bar VALUES (...)")
+await conn.commit()
+```
+
+### rollback
+
+`async def rollback(self) -> None:`
+
+Rollback the current transaction. Only meaningful when `autocommit=False`; no-op if no connection has been opened yet.
+
+```
+try:
+    await conn.execute("INSERT INTO foo VALUES (...)")
+    await conn.execute("INSERT INTO bar VALUES (...)")
+    await conn.commit()
+except Exception:
+    await conn.rollback()
+    raise
+```
+
+### transaction
+
+`@asynccontextmanager async def transaction(self) -> AsyncIterator[AsyncTransaction]:`
+
+Enter a transactional context on a single held physical connection. Yields an `AsyncTransaction` handle that exposes the same executor surface as the connection (primitives + warehouse composites). Commits on normal exit, rolls back on exception. When `use_pool=True`, the connection is returned to the pool at exit.
+
+```
+async with PostgresConnection.transaction() as tx:
+    await tx.execute("SET LOCAL ROLE some_role")
+    await tx.execute("CREATE TABLE ...")
+    await tx.upsert_df_to_warehouse(df, "target", cols, match_cols)
+# Commit on normal exit; rollback on exception.
+```
+
+Manual termination is available — `await tx.commit()` / `await tx.rollback()` end the transaction early; the context manager's commit/rollback-on-exit becomes a no-op.
+
+Nested transactions are supported via psycopg3's native `SAVEPOINT` mechanism.
+
+### retry_transaction
+
+`async def retry_transaction(self, fn: Callable[[AsyncTransaction], Awaitable[T]]) -> T:`
+
+Run `fn(tx)` inside a transaction with retry applied at the transaction boundary. Uses the same retry policy as the per-method decorator (retriable Postgres errors → 5-minute wait → fresh transaction), but the entire block rolls back and re-enters atomically. Non-retriable errors propagate immediately.
+
+Use for DDL blocks, truncate+insert replacements, or reconciliation deletes where the whole block should retry rather than a single statement.
+
+```
+async def rebuild_table(tx):
+    await tx.truncate_table("reporting_snapshot")
+    await tx.upsert_df_to_warehouse(df, "reporting_snapshot", cols, match_cols)
+
+await PostgresConnection.retry_transaction(rebuild_table)
+```
+
+# Transaction / AsyncTransaction
+
+The handles yielded by `conn.transaction()`. They expose the same executor surface as the connection — the five primitives (`execute`, `safe_execute`, `execute_many`, `execute_multiple`, `fetch_data`) plus the warehouse composites (`export_df_to_warehouse`, `upsert_df_to_warehouse`, `truncate_table`, `empty_table`) — but all operations run on a single held connection without per-call commit.
+
+Available attributes and methods:
+* `tx.connection` — underlying psycopg3 `Connection` / `AsyncConnection` (escape hatch).
+* `tx.commit()` / `tx.rollback()` — terminate the transaction early; the outer context manager's exit becomes a no-op.
+
+Transaction primitives are NOT retry-decorated — retry at the transaction boundary is handled by `conn.retry_transaction(fn)`.
