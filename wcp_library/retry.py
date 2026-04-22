@@ -151,3 +151,32 @@ graph_retry_kwargs = dict(
     before_sleep=_before_sleep_log,
     reraise=True,
 )
+
+
+def make_generic_retry(
+    exceptions: type[BaseException] | tuple[type[BaseException], ...],
+    max_attempts: int = 5,
+    delay: int = 2,
+    backoff: int = 2,
+    jitter: int = 3,
+) -> dict:
+    """Build tenacity kwargs for arbitrary-exception retry with exp backoff + jitter.
+
+    Policy-identical to the pre-1.12 ``wcp_library.retry`` decorator.
+
+    :param exceptions: exception class or tuple to catch.
+    :param max_attempts: total attempts before giving up.
+    :param delay: initial delay (seconds).
+    :param backoff: multiplier applied to delay each attempt.
+    :param jitter: max random seconds added per retry.
+    """
+    def _wait(retry_state) -> float:
+        return delay * (backoff ** (retry_state.attempt_number - 1)) + random.uniform(0, jitter)
+
+    return dict(
+        retry=retry_if_exception_type(exceptions),
+        wait=_wait,
+        stop=stop_after_attempt(max_attempts),
+        before_sleep=_before_sleep_log,
+        reraise=True,
+    )

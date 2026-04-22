@@ -168,3 +168,42 @@ class TestGraphRetryStrategy:
         retry_state = MagicMock()
         retry_state.outcome.exception.return_value = requests.HTTPError("500 Internal")
         assert not graph_retry_kwargs["retry"](retry_state)
+
+
+from wcp_library.retry import make_generic_retry
+
+
+class TestMakeGenericRetry:
+    def test_defaults_produce_valid_kwargs(self):
+        kwargs = make_generic_retry(exceptions=ValueError)
+        for key in ("retry", "wait", "stop", "before_sleep", "reraise"):
+            assert key in kwargs
+
+    def test_exp_backoff_grows_with_attempt(self):
+        kwargs = make_generic_retry(exceptions=ValueError, delay=1, backoff=2, jitter=0)
+
+        rs_1 = MagicMock(); rs_1.attempt_number = 1
+        rs_2 = MagicMock(); rs_2.attempt_number = 2
+        rs_3 = MagicMock(); rs_3.attempt_number = 3
+
+        # delay * backoff**(attempt-1) with jitter=0
+        assert kwargs["wait"](rs_1) == 1   # 1 * 2^0
+        assert kwargs["wait"](rs_2) == 2   # 1 * 2^1
+        assert kwargs["wait"](rs_3) == 4   # 1 * 2^2
+
+    def test_jitter_adds_randomness(self):
+        kwargs = make_generic_retry(exceptions=ValueError, delay=10, backoff=1, jitter=5)
+        rs = MagicMock(); rs.attempt_number = 1
+        waits = {kwargs["wait"](rs) for _ in range(20)}
+        # Expect multiple distinct values due to jitter
+        assert len(waits) > 1
+
+    def test_retries_specified_exception(self):
+        kwargs = make_generic_retry(exceptions=(ValueError, KeyError))
+        rs_val = MagicMock(); rs_val.outcome.exception.return_value = ValueError()
+        rs_key = MagicMock(); rs_key.outcome.exception.return_value = KeyError()
+        rs_type = MagicMock(); rs_type.outcome.exception.return_value = TypeError()
+
+        assert kwargs["retry"](rs_val)
+        assert kwargs["retry"](rs_key)
+        assert not kwargs["retry"](rs_type)
