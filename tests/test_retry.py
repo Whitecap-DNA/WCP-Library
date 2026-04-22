@@ -82,6 +82,22 @@ class TestPostgresRetryStrategy:
         retry_state.outcome.exception.return_value = ValueError("not a db error")
         assert not postgres_retry_kwargs["retry"](retry_state)
 
+    def test_before_sleep_logs_wait_time(self, caplog):
+        import logging
+        caplog.set_level(logging.INFO, logger="wcp_library.retry")
+
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(psycopg.OperationalError, "08001")
+        retry_state.attempt_number = 1
+        retry_state.next_action = MagicMock()
+        retry_state.next_action.sleep = 300.0
+
+        postgres_retry_kwargs["before_sleep"](retry_state)
+
+        # At least one INFO-level record from wcp_library.retry mentions waiting 300.0s
+        matching = [r for r in caplog.records if "waiting 300.0s" in r.getMessage()]
+        assert matching, f"Expected log record mentioning 'waiting 300.0s'; got {[r.getMessage() for r in caplog.records]}"
+
 
 class TestOracleRetryStrategy:
     def test_connection_loss_waits_300_seconds(self):

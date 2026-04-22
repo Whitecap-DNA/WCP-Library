@@ -48,7 +48,7 @@ from pathlib import Path
 import requests
 from yarl import URL
 
-from wcp_library.graph import REQUEST_TIMEOUT, _request
+from wcp_library.graph import _request
 
 logger = logging.getLogger(__name__)
 

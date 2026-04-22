@@ -38,7 +38,7 @@ from typing import Tuple
 import aiofiles
 import requests
 
-from wcp_library.graph import REQUEST_TIMEOUT, _request
+from wcp_library.graph import _request
 
 logger = logging.getLogger(__name__)
 

@@ -106,9 +106,10 @@ def _make_sql_retry(
 
     def _before_sleep(retry_state) -> None:
         code = _extract_full_code(retry_state.outcome.exception())
+        sleep_s = retry_state.next_action.sleep if retry_state.next_action else 0.0
         logger.info(
-            "%s retry %d: code=%s",
-            name, retry_state.attempt_number, code,
+            "%s retry %d: code=%s, waiting %.1fs",
+            name, retry_state.attempt_number, code, sleep_s,
         )
 
     return dict(
