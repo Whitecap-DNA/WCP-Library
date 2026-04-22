@@ -48,7 +48,7 @@ from pathlib import Path
 import requests
 from yarl import URL
 
-from wcp_library.graph import REQUEST_TIMEOUT
+from wcp_library.graph import REQUEST_TIMEOUT, _request
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +89,7 @@ def _iter_pages(
     items: list[dict] = []
     next_url: str | None = url
     while next_url:
-        response = requests.get(next_url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", next_url, headers)
         data = response.json()
         items.extend(data.get("value", []))
         next_url = data.get("@odata.nextLink")
@@ -111,8 +110,7 @@ def get_site_metadata(headers: dict, site_home_url: str) -> dict | None:
     url = URL(site_home_url)
     url = f"{_GRAPH_ROOT}/sites/{url.host}:{url.path}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -225,8 +223,7 @@ def get_file_metadata(
     """
     url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -253,8 +250,7 @@ def get_file_content(
     """
     url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.content
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -274,8 +270,7 @@ def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes 
     """
     url = f"{_GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.content
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -316,13 +311,7 @@ def upload_file(
         f"?@microsoft.graph.conflictBehavior={conflict_behavior}"
     )
     try:
-        response = requests.put(
-            url,
-            headers=headers,
-            data=_ensure_bytes(content),
-            timeout=REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
+        response = _request("PUT", url, headers, data=_ensure_bytes(content))
         json_response = response.json()
         parent_path = json_response.get("parentReference", {}).get("path", "")
         logger.info("%s has been uploaded to: %s", filename, parent_path)
@@ -366,8 +355,7 @@ def download_file(
     """
     url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         output_path = download_folder / Path(file_path).name
         output_path.write_bytes(response.content)
         return output_path
@@ -403,13 +391,12 @@ def move_file(
     url = f"{_drive_base(site_id, drive_id)}/root:{source_path}"
     payload = _build_payload(destination_path, new_filename, drive_id=drive_id)
     try:
-        response = requests.patch(
+        response = _request(
+            "PATCH",
             url,
-            headers={**headers, "Content-Type": "application/json"},
+            {**headers, "Content-Type": "application/json"},
             json=payload,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         response_json = response.json()
         parent_path = response_json.get("parentReference", {}).get("path", "")
         logger.info(
@@ -483,13 +470,12 @@ def copy_file(
     url = f"{_drive_base(site_id, drive_id)}/root:{source_path}:/copy"
     payload = _build_payload(destination_path, new_filename, drive_id=drive_id)
     try:
-        response = requests.post(
+        response = _request(
+            "POST",
             url,
-            headers={**headers, "Content-Type": "application/json"},
+            {**headers, "Content-Type": "application/json"},
             json=payload,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         logger.info("%s has been copied to: %s", source_path, destination_path)
         return response.json()
     except requests.RequestException as e:
@@ -534,8 +520,7 @@ def remove_file(
     """
     url = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
     try:
-        response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        _request("DELETE", url, headers)
         logger.info("%s has been removed from SharePoint.", file_path)
         return True
     except requests.RequestException as e:
@@ -586,8 +571,7 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None:
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -611,13 +595,12 @@ def create_list(
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists"
     payload = {"displayName": list_name, "list": {"template": list_template}}
     try:
-        response = requests.post(
+        response = _request(
+            "POST",
             url,
-            headers={**headers, "Content-Type": "application/json"},
+            {**headers, "Content-Type": "application/json"},
             json=payload,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -637,8 +620,7 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> bool:
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}"
     try:
-        response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        _request("DELETE", url, headers)
         logger.info("List %s has been removed from site %s.", list_id, site_id)
         return True
     except requests.RequestException as e:
@@ -695,8 +677,7 @@ def get_list_item_metadata(
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}?expand=fields"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -720,13 +701,12 @@ def create_list_item(
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
     payload = {"fields": fields}
     try:
-        response = requests.post(
+        response = _request(
+            "POST",
             url,
-            headers={**headers, "Content-Type": "application/json"},
+            {**headers, "Content-Type": "application/json"},
             json=payload,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -750,13 +730,12 @@ def update_list_item(
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
     try:
-        response = requests.patch(
+        response = _request(
+            "PATCH",
             url,
-            headers={**headers, "Content-Type": "application/json"},
+            {**headers, "Content-Type": "application/json"},
             json=fields,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -777,8 +756,7 @@ def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) ->
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items/{item_id}"
     try:
-        response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        _request("DELETE", url, headers)
         logger.info("Item %s has been removed from list %s.", item_id, list_id)
         return True
     except requests.RequestException as e:
