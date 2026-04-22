@@ -1,6 +1,4 @@
-import asyncio
 import logging
-import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
@@ -12,18 +10,11 @@ from psycopg import AsyncConnection, Connection
 from psycopg.conninfo import make_conninfo
 from psycopg.sql import Composed, Identifier, Placeholder, SQL
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
+from tenacity import AsyncRetrying, Retrying, retry as tenacity_retry
 
-from wcp_library.sql import (
-    _RETRY_SLEEP_SECONDS,
-    _log_giveup,
-    _log_retry,
-    async_retry,
-    classify_db_exception,
-    retry,
-)
+from wcp_library.retry import postgres_retry_kwargs
 
 logger = logging.getLogger(__name__)
-postgres_retry_codes = ['08001', '08004', '40P01']
 
 _T = TypeVar("_T")
 
@@ -466,11 +457,7 @@ class PostgresConnection(SyncExecutor):
         self.min_connections = min_connections
         self.max_connections = max_connections
 
-        self._retry_count = 0
-        self.retry_limit = 50
-        self.retry_error_codes = postgres_retry_codes
-
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def _connect(self) -> None:
         """
         Connect to the warehouse
@@ -524,7 +511,7 @@ class PostgresConnection(SyncExecutor):
                 self._connection.close()
             self._connection = None
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def execute(self, query: SQL | Composed | str) -> int:
         """Execute a single statement.
 
@@ -543,7 +530,7 @@ class PostgresConnection(SyncExecutor):
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def safe_execute(
         self, query: SQL | Composed | str, packed_values: dict
     ) -> int:
@@ -565,7 +552,7 @@ class PostgresConnection(SyncExecutor):
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def execute_multiple(
         self, queries: list[tuple[SQL | Composed | str, dict]]
     ) -> int:
@@ -595,7 +582,7 @@ class PostgresConnection(SyncExecutor):
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def execute_many(
         self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
     ) -> int:
@@ -618,7 +605,7 @@ class PostgresConnection(SyncExecutor):
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def fetch_data(
         self, query: SQL | Composed | str, packed_data: dict | None = None
     ) -> list[tuple]:
@@ -709,43 +696,21 @@ class PostgresConnection(SyncExecutor):
         """Run ``fn(tx, *args, **kwargs)`` inside a transaction with retry at
         the transaction boundary.
 
-        Sync mirror of :meth:`AsyncPostgresConnection.retry_transaction`.
-        On retriable Postgres errors (``full_code`` in
-        ``self.retry_error_codes``), the transaction is rolled back,
-        the thread sleeps 5 minutes per the standard library policy,
-        and a fresh transaction is entered to retry ``fn``.
-        Non-retriable errors propagate immediately.
+        Uses :data:`wcp_library.retry.postgres_retry_kwargs` -- same tiered
+        policy as the per-primitive retry, but applied to the whole
+        ``with self.transaction() as tx: fn(tx, ...)`` block. Extra
+        positional and keyword args are forwarded to ``fn`` after ``tx``.
 
-        This is the transaction-scoped equivalent of the ``@retry``
-        decorator: same exception filtering, same backoff, same
-        attempt limit, just applied at the granularity of the whole
-        ``with self.transaction() as tx: fn(tx, *args, **kwargs)`` block.
-
-        :param fn: callable; receives a :class:`Transaction` as its first
-            argument, followed by any extra positional/keyword args
-        :param args: forwarded to ``fn`` after the transaction handle
-        :param kwargs: forwarded to ``fn``
-        :return: the return value of the successful ``fn`` invocation
-        :raises: the final exception if all attempts fail, or any non-
-            retriable error immediately
+        :param fn: callable; first arg is the :class:`Transaction` handle.
+        :return: the return value of the successful ``fn`` invocation.
+        :raises: the final exception if all attempts fail.
         """
-        self._retry_count = 0
-        while True:
-            try:
-                with self.transaction() as tx:
-                    return fn(tx, *args, **kwargs)
-            except (psycopg.OperationalError, psycopg.DatabaseError) as e:
-                action, full_code, message = classify_db_exception(e, self.retry_error_codes)
-                if action == "raise":
-                    raise
-                if action == "non_retriable" or self._retry_count >= self.retry_limit:
-                    _log_giveup(full_code, self.retry_limit, action)
-                    raise
-                self._retry_count += 1
-                _log_retry(self._retry_count, self.retry_limit, full_code, message, "transaction")
-                time.sleep(_RETRY_SLEEP_SECONDS)
+        def _block():
+            with self.transaction() as tx:
+                return fn(tx, *args, **kwargs)
+        return Retrying(**postgres_retry_kwargs)(_block)
 
-    @retry
+    @tenacity_retry(**postgres_retry_kwargs)
     def remove_matching_data(
         self, df: pd.DataFrame, table_name: str, match_cols: list[str]
     ) -> int:
@@ -1055,11 +1020,7 @@ class AsyncPostgresConnection(AsyncExecutor):
         self.min_connections = min_connections
         self.max_connections = max_connections
 
-        self._retry_count = 0
-        self.retry_limit = 50
-        self.retry_error_codes = postgres_retry_codes
-
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def _connect(self) -> None:
         """
         Connect to the warehouse
@@ -1115,7 +1076,7 @@ class AsyncPostgresConnection(AsyncExecutor):
                 await self._connection.close()
             self._connection = None
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def execute(self, query: SQL | Composed | str) -> int:
         """Execute a single statement.
 
@@ -1134,7 +1095,7 @@ class AsyncPostgresConnection(AsyncExecutor):
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def safe_execute(
         self, query: SQL | Composed | str, packed_values: dict
     ) -> int:
@@ -1156,7 +1117,7 @@ class AsyncPostgresConnection(AsyncExecutor):
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def execute_multiple(
         self, queries: list[tuple[SQL | Composed | str, dict]]
     ) -> int:
@@ -1186,7 +1147,7 @@ class AsyncPostgresConnection(AsyncExecutor):
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def execute_many(
         self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
     ) -> int:
@@ -1209,7 +1170,7 @@ class AsyncPostgresConnection(AsyncExecutor):
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def fetch_data(
         self, query: SQL | Composed | str, packed_data: dict | None = None
     ) -> list[tuple]:
@@ -1301,41 +1262,18 @@ class AsyncPostgresConnection(AsyncExecutor):
         """Run ``await fn(tx, *args, **kwargs)`` inside a transaction with
         retry at the transaction boundary.
 
-        On retriable Postgres errors (``full_code`` in ``self.retry_error_codes``),
-        the transaction is rolled back, the coroutine waits 5 minutes per the
-        standard library policy, and a fresh transaction is entered to retry
-        ``fn``. Non-retriable errors propagate immediately.
+        Uses :data:`wcp_library.retry.postgres_retry_kwargs` -- same tiered
+        policy as the per-primitive retry.
 
-        This is the transaction-scoped equivalent of the ``@async_retry``
-        decorator: same exception filtering, same backoff, same attempt
-        limit, just applied at the granularity of the whole ``async with
-        self.transaction() as tx: await fn(tx, *args, **kwargs)`` block.
-
-        :param fn: async callable; receives an :class:`AsyncTransaction` as
-            its first argument, followed by any extra positional/keyword args
-        :param args: forwarded to ``fn`` after the transaction handle
-        :param kwargs: forwarded to ``fn``
-        :return: the return value of the successful ``fn`` invocation
-        :raises: the final exception if all attempts fail, or any non-
-            retriable error immediately
+        :param fn: async callable; first arg is the :class:`AsyncTransaction`.
+        :return: the return value of the successful ``fn`` invocation.
         """
-        self._retry_count = 0
-        while True:
-            try:
-                async with self.transaction() as tx:
-                    return await fn(tx, *args, **kwargs)
-            except (psycopg.OperationalError, psycopg.DatabaseError) as e:
-                action, full_code, message = classify_db_exception(e, self.retry_error_codes)
-                if action == "raise":
-                    raise
-                if action == "non_retriable" or self._retry_count >= self.retry_limit:
-                    _log_giveup(full_code, self.retry_limit, action)
-                    raise
-                self._retry_count += 1
-                _log_retry(self._retry_count, self.retry_limit, full_code, message, "transaction")
-                await asyncio.sleep(_RETRY_SLEEP_SECONDS)
+        async def _block():
+            async with self.transaction() as tx:
+                return await fn(tx, *args, **kwargs)
+        return await AsyncRetrying(**postgres_retry_kwargs)(_block)
 
-    @async_retry
+    @tenacity_retry(**postgres_retry_kwargs)
     async def remove_matching_data(
         self, df: pd.DataFrame, table_name: str, match_cols: list[str]
     ) -> int:

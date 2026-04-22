@@ -8,11 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
 import pytest
+from tenacity import stop_after_attempt
 
-from wcp_library.sql.postgres import (
-    AsyncPostgresConnection,
-    postgres_retry_codes,
-)
+from wcp_library.retry import postgres_retry_kwargs
+from wcp_library.sql.postgres import AsyncPostgresConnection
 
 
 class _FakeErrorObj:
@@ -24,7 +23,7 @@ class _FakeErrorObj:
 
 def _retriable_error():
     """Build a psycopg.OperationalError whose args[0].full_code is retriable."""
-    err_obj = _FakeErrorObj(full_code=postgres_retry_codes[0])  # '08001'
+    err_obj = _FakeErrorObj(full_code="08001")
     e = psycopg.OperationalError(err_obj)
     return e
 
@@ -69,11 +68,15 @@ class TestRetryTransactionSuccess:
         assert result == "ok"
         assert call_count == 1
 
-    async def test_retry_count_starts_at_zero(self, conn_with_stub_transaction):
+    async def test_no_sleep_on_first_attempt_success(
+        self, conn_with_stub_transaction
+    ):
         async def fn(tx):
             return None
-        await conn_with_stub_transaction.retry_transaction(fn)
-        assert conn_with_stub_transaction._retry_count == 0
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            await conn_with_stub_transaction.retry_transaction(fn)
+        assert mock_sleep.await_count == 0
 
 
 class TestRetryTransactionNonRetriable:
@@ -110,12 +113,15 @@ class TestRetryTransactionRetries:
 
         assert result == "finally ok"
         assert len(attempts) == 2
-        mock_sleep.assert_awaited_once_with(300)
-        assert conn_with_stub_transaction._retry_count == 1
+        mock_sleep.assert_awaited_once_with(300.0)
 
-    async def test_retry_limit_respected(self, conn_with_stub_transaction):
-        # Force retry_limit to 2 to keep the test fast.
-        conn_with_stub_transaction.retry_limit = 2
+    async def test_retry_limit_respected(
+        self, conn_with_stub_transaction, monkeypatch
+    ):
+        # Lower retry_limit to 2 attempts total by patching the stop condition.
+        # monkeypatch.setitem ensures the module-level dict is reverted after test.
+        monkeypatch.setitem(postgres_retry_kwargs, "stop", stop_after_attempt(2))
+
         attempts = []
 
         async def fn(tx):
@@ -126,7 +132,4 @@ class TestRetryTransactionRetries:
             with pytest.raises(psycopg.OperationalError):
                 await conn_with_stub_transaction.retry_transaction(fn)
 
-        # retry_limit=2 means up to 2 retries after the first failure = 3 attempts total.
-        # The loop raises on the attempt AFTER _retry_count == retry_limit.
-        assert len(attempts) == 3
-        assert conn_with_stub_transaction._retry_count == 2
+        assert len(attempts) == 2

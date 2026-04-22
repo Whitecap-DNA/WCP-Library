@@ -3,11 +3,10 @@ from unittest.mock import MagicMock, patch
 
 import psycopg
 import pytest
+from tenacity import stop_after_attempt
 
-from wcp_library.sql.postgres import (
-    PostgresConnection,
-    postgres_retry_codes,
-)
+from wcp_library.retry import postgres_retry_kwargs
+from wcp_library.sql.postgres import PostgresConnection
 
 
 class _FakeErrorObj:
@@ -17,7 +16,7 @@ class _FakeErrorObj:
 
 
 def _retriable_error():
-    err_obj = _FakeErrorObj(full_code=postgres_retry_codes[0])
+    err_obj = _FakeErrorObj(full_code="08001")
     return psycopg.OperationalError(err_obj)
 
 
@@ -84,10 +83,12 @@ class TestSyncRetryTransaction:
 
         assert result == "ok"
         assert len(attempts) == 2
-        mock_sleep.assert_called_once_with(300)
+        mock_sleep.assert_called_once_with(300.0)
 
-    def test_retry_limit_respected(self, conn_with_stub_transaction):
-        conn_with_stub_transaction.retry_limit = 2
+    def test_retry_limit_respected(self, conn_with_stub_transaction, monkeypatch):
+        # Lower retry_limit to 2 attempts total by patching the stop condition.
+        monkeypatch.setitem(postgres_retry_kwargs, "stop", stop_after_attempt(2))
+
         attempts = []
 
         def fn(tx):
@@ -98,4 +99,4 @@ class TestSyncRetryTransaction:
             with pytest.raises(psycopg.OperationalError):
                 conn_with_stub_transaction.retry_transaction(fn)
 
-        assert len(attempts) == 3
+        assert len(attempts) == 2
