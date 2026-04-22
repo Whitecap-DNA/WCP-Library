@@ -169,11 +169,13 @@ class TestCompositesThroughTransaction:
         tx = AsyncTransaction(parent=None, connection=conn)
 
         await tx.truncate_table("public.t")
-        # Composite lives on AsyncExecutor, calls self.execute -> AsyncTransaction.execute
+        # Composite lives on AsyncExecutor, calls self.execute -> AsyncTransaction.execute.
+        # The query is a psycopg Composed: Composed([SQL('TRUNCATE TABLE '), Identifier('public','t')])
         conn.execute.assert_awaited_once()
         called_query = conn.execute.await_args.args[0]
-        assert "TRUNCATE TABLE" in str(called_query)
-        assert "public.t" in str(called_query)
+        s = str(called_query)
+        assert "TRUNCATE TABLE" in s
+        assert "'public'" in s and "'t'" in s
 
     async def test_empty_table_via_transaction_calls_execute(self):
         conn, _, _ = _make_mock_connection()
@@ -193,4 +195,5 @@ class TestCompositesThroughTransaction:
 
         cursor.executemany.assert_awaited_once()
         query = cursor.executemany.await_args.args[0]
-        assert "INSERT INTO t" in query
+        # Query is a psycopg Composed object, not a plain string
+        assert "INSERT INTO" in str(query)
