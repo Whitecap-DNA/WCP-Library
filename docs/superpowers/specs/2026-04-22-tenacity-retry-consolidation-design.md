@@ -291,7 +291,7 @@ from wcp_library.retry import make_generic_retry
 
 **Implementation order** (plan will refine):
 
-1. Add `tenacity = "^8.5.0"` (or current major) to `pyproject.toml`; refresh `poetry.lock`.
+1. Add `tenacity = "~9.1.4"` (matches the version already pinned in other D&A projects) to `pyproject.toml`; refresh `poetry.lock`.
 2. Create `wcp_library/retry.py` with strategy configs, factories, classifier. Pure addition — no existing call sites change yet.
 3. Introduce `wcp_library/graph/__init__.py::_request`; migrate sharepoint/mail/subscription call sites one module at a time.
 4. Migrate `wcp_library/sql/postgres.py` primitives + `retry_transaction`.
