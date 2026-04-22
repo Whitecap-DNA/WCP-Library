@@ -56,6 +56,15 @@ This module provides complete lifecycle management for Microsoft Graph webhook s
 - Notification URL update support for migrating endpoints.
 - Separate notification and lifecycle notification URL configuration.
 
+## Retry
+
+Every Graph HTTP call (across sharepoint, mail, subscription) goes through a shared internal helper (`wcp_library.graph._request`) that retries automatically on:
+- **HTTP 429 Too Many Requests** — honors the `Retry-After` response header exactly (when present as a numeric value).
+- **HTTP 503 / 504** — exponential backoff up to 60 seconds.
+- **Network errors** (`requests.ConnectionError`, `requests.Timeout`) — exponential backoff up to 60 seconds.
+
+Up to 5 attempts total. Retries are transparent to callers: the public helpers still return `None` (or the documented value) on non-retryable failure; only retryable errors loop internally. Policy defined in `wcp_library.retry.graph_retry_kwargs`.
+
 # Usage
 
 ## Authentication
