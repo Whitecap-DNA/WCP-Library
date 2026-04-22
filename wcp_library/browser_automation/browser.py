@@ -47,9 +47,11 @@ from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from yarl import URL
 
-from wcp_library import retry
+from tenacity import retry as tenacity_retry
+
 from wcp_library.browser_automation.interactions import (UIInteractions,
                                                          WEInteractions)
+from wcp_library.retry import make_generic_retry
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         # driver is injected in __enter__ once create_driver() succeeds.
         super().__init__(driver=None, sharepoint_config=sharepoint_config)
 
-    @retry(exceptions=(selenium_exceptions.WebDriverException,))
+    @tenacity_retry(**make_generic_retry(exceptions=(selenium_exceptions.WebDriverException,)))
     def __enter__(self) -> "BaseSelenium":
         self.driver = self.create_driver()
         return self
