@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class SFTP:
-    def __init__(self, host: Optional[str]=None, port: Optional[int]=21, password_vault_dict: Optional[dict]=None):
+    def __init__(self, host: Optional[str]=None, port: Optional[int]=22, password_vault_dict: Optional[dict]=None):
         self.host: str = host if not password_vault_dict else password_vault_dict['Host']
         self.port: int = port if not password_vault_dict else password_vault_dict['Port']
         self._username: Optional[str] = None if not password_vault_dict else password_vault_dict['UserName']

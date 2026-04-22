@@ -123,8 +123,6 @@ This class uses [paramiko](https://www.paramiko.org/) as it's backbone.
 
 It's initiated by passing along the host and optionally a port number (default is 22 if none is supplied), then calling login with the username and password.
 
-(Note: the current source default is `21` — a known bug; pass `port=22` explicitly until it's fixed.)
-
 #### Constructor
 
 `SFTP(host: str | None = None, port: int = 22, password_vault_dict: dict | None = None)`
