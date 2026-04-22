@@ -22,6 +22,16 @@ from wcp_library.sql.postgres import (
 )
 
 
+def _make_mock_cursor(rowcount=1):
+    """Cursor-like MagicMock with a settable ``rowcount``."""
+    c = MagicMock(name="Cursor")
+    c.rowcount = rowcount
+    c.executemany = AsyncMock()
+    c.execute = AsyncMock()
+    c.fetchall = AsyncMock(return_value=[(1, "a"), (2, "b")])
+    return c
+
+
 def _make_mock_connection():
     """Build a MagicMock mimicking a psycopg3 AsyncConnection."""
     conn = MagicMock(name="AsyncConnection")
@@ -29,7 +39,8 @@ def _make_mock_connection():
 
     # set_autocommit is an async method in psycopg3
     conn.set_autocommit = AsyncMock()
-    conn.execute = AsyncMock()
+    # connection.execute returns a cursor-like with .rowcount
+    conn.execute = AsyncMock(return_value=_make_mock_cursor(rowcount=1))
     conn.commit = AsyncMock()
     conn.rollback = AsyncMock()
 
@@ -40,10 +51,7 @@ def _make_mock_connection():
     conn.transaction = MagicMock(return_value=tx_ctx)
 
     # cursor() is sync-returning; executemany/execute on the cursor are async
-    cursor = MagicMock(name="Cursor")
-    cursor.executemany = AsyncMock()
-    cursor.execute = AsyncMock()
-    cursor.fetchall = AsyncMock(return_value=[(1, "a"), (2, "b")])
+    cursor = _make_mock_cursor(rowcount=2)
     conn.cursor = MagicMock(return_value=cursor)
     return conn, cursor, tx_ctx
 

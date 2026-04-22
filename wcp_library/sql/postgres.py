@@ -3,6 +3,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
+from typing import Any, Awaitable, Callable, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,90 @@ from wcp_library.sql import (
 
 logger = logging.getLogger(__name__)
 postgres_retry_codes = ['08001', '08004', '40P01']
+
+_T = TypeVar("_T")
+
+
+# ---------------------------------------------------------------------------
+# Query-building helpers (shared by sync and async composites)
+# ---------------------------------------------------------------------------
+
+
+def _table_identifier(table_name: str) -> Identifier:
+    """Build a psycopg ``Identifier`` from a possibly schema-qualified name."""
+    return Identifier(*table_name.split("."))
+
+
+def _prepare_df_records(
+    df: pd.DataFrame, columns: list[str], remove_nan: bool
+) -> list[tuple]:
+    """Project ``df`` onto ``columns``, normalize NaN/NaT/empty-string to None,
+    and return row tuples suitable for ``execute_many``."""
+    df_copy = df[columns].copy()
+    if remove_nan:
+        df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
+    df_copy = df_copy.replace({"": None})
+    return list(df_copy.itertuples(index=False, name=None))
+
+
+def _build_insert_for_df(
+    df: pd.DataFrame, table_name: str, columns: list[str], remove_nan: bool
+) -> tuple[Composed, list[tuple]]:
+    """Build the INSERT query + records for ``export_df_to_warehouse``.
+
+    Caller is responsible for upstream validation (non-empty columns,
+    subset-of-df-columns, non-empty df).
+    """
+    col_ids = SQL(", ").join(Identifier(c) for c in columns)
+    placeholders = SQL(", ").join(Placeholder() for _ in columns)
+    query = SQL("INSERT INTO {} ({}) VALUES ({})").format(
+        _table_identifier(table_name), col_ids, placeholders
+    )
+    return query, _prepare_df_records(df, columns, remove_nan)
+
+
+def _build_upsert_for_df(
+    df: pd.DataFrame,
+    table_name: str,
+    columns: list[str],
+    match_cols: list[str],
+    remove_nan: bool,
+) -> tuple[Composed, list[tuple]]:
+    """Build the INSERT...ON CONFLICT query + records for
+    ``upsert_df_to_warehouse``."""
+    update_cols = [c for c in columns if c not in match_cols]
+    col_ids = SQL(", ").join(Identifier(c) for c in columns)
+    match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
+    placeholders = SQL(", ").join(Placeholder() for _ in columns)
+    if update_cols:
+        updates = SQL(", ").join(
+            SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
+            for c in update_cols
+        )
+        conflict_action = SQL("DO UPDATE SET {}").format(updates)
+    else:
+        conflict_action = SQL("DO NOTHING")
+    query = SQL(
+        "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
+    ).format(_table_identifier(table_name), col_ids, placeholders, match_ids, conflict_action)
+    return query, _prepare_df_records(df, columns, remove_nan)
+
+
+def _build_delete_matching_for_df(
+    df: pd.DataFrame, table_name: str, match_cols: list[str]
+) -> tuple[Composed, list[dict]]:
+    """Build the DELETE query + dict-records for ``remove_matching_data``."""
+    df_subset = df[match_cols].drop_duplicates(keep='first')
+    conditions = SQL(" AND ").join(
+        SQL("{} = {}").format(Identifier(c), Placeholder(c)) for c in match_cols
+    )
+    query = SQL("DELETE FROM {} WHERE {}").format(
+        _table_identifier(table_name), conditions
+    )
+    return query, df_subset.to_dict('records')
+
+
+# ---------------------------------------------------------------------------
 
 
 def _connect_warehouse(username: str, password: str, hostname: str, port: int, database: str, min_connections: int,
@@ -110,238 +195,6 @@ async def _async_connect_warehouse(username: str, password: str, hostname: str, 
 """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
 
 
-class AsyncExecutor(ABC):
-    """Abstract executor for async Postgres operations.
-
-    Concrete subclasses implement the five primitives (execute,
-    safe_execute, execute_many, execute_multiple, fetch_data). The
-    composite data-manipulation methods (export_df_to_warehouse,
-    upsert_df_to_warehouse, truncate_table, empty_table) live here
-    and call self.<primitive> -- dispatch is correct on both
-    AsyncPostgresConnection (per-call pool checkout) and
-    AsyncTransaction (single held connection) because both implement
-    the same primitive surface.
-    """
-
-    @abstractmethod
-    async def execute(self, query): ...
-
-    @abstractmethod
-    async def safe_execute(self, query, packed_values): ...
-
-    @abstractmethod
-    async def execute_many(self, query, dictionary): ...
-
-    @abstractmethod
-    async def execute_multiple(self, queries): ...
-
-    @abstractmethod
-    async def fetch_data(self, query, packed_data=None): ...
-
-    async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
-        """
-        Export the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns to insert
-        :param remove_nan: remove NaN values
-        :return: Number of records inserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-
-        if not columns:
-            raise ValueError("columns cannot be empty")
-        if not set(columns).issubset(set(df.columns)):
-            raise ValueError("columns must be a subset of DataFrame columns")
-        if df.empty:
-            return 0
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
-        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
-        await self.execute_many(query, records)
-        return len(records)
-
-    async def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
-        """
-        Upsert the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns
-        :param match_cols: list of columns to match on
-        :param remove_nan: remove NaN values
-        :return: Number of records upserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
-
-        if not columns:
-            raise ValueError("columns cannot be empty")
-        if not match_cols:
-            raise ValueError("match_cols cannot be empty")
-        if not set(match_cols).issubset(set(columns)):
-            raise ValueError("match_cols must be a subset of columns")
-        if df.empty:
-            return 0
-
-        update_cols = [c for c in columns if c not in match_cols]
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        if update_cols:
-            updates = SQL(", ").join(
-                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
-                for c in update_cols
-            )
-            conflict_action = SQL("DO UPDATE SET {}").format(updates)
-        else:
-            conflict_action = SQL("DO NOTHING")
-
-        query = SQL(
-            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
-        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
-        await self.execute_many(query, records)
-        return len(records)
-
-    async def truncate_table(self, table_name: str) -> None:
-        """
-        Truncate the table
-
-        :param table_name: table name
-        :return: None
-        """
-
-        if not table_name:
-            raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
-        await self.execute(truncate_query)
-
-    async def empty_table(self, table_name: str) -> None:
-        """
-        Empty the table
-
-        :param table_name: table name
-        :return: None
-        """
-
-        if not table_name:
-            raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        delete_query = SQL("DELETE FROM {}").format(table_id)
-        await self.execute(delete_query)
-
-
-class AsyncTransaction(AsyncExecutor):
-    """Handle yielded by ``AsyncPostgresConnection.transaction()``.
-
-    All primitives run on the single held psycopg3 AsyncConnection and
-    do NOT commit per call. The transaction is committed on normal
-    context-manager exit and rolled back on exception (by psycopg3's
-    native transaction context). Manual :meth:`commit` / :meth:`rollback`
-    are available for early termination; after either is called, the
-    outer context manager's commit/rollback becomes a no-op because no
-    transaction remains open.
-
-    Composite methods (``upsert_df_to_warehouse``, ``truncate_table``,
-    etc.) are inherited from :class:`AsyncExecutor` and dispatch to the
-    primitives on this class -- so they run transactionally too.
-
-    No retry decoration on the primitives here: retry belongs at the
-    transaction boundary via :meth:`AsyncPostgresConnection.retry_transaction`.
-    """
-
-    def __init__(self, parent, connection):
-        self._parent = parent
-        self._connection = connection
-        self._completed_manually = False
-
-    @property
-    def connection(self):
-        """The underlying psycopg3 ``AsyncConnection`` (escape hatch)."""
-        return self._connection
-
-    async def execute(self, query):
-        await self._connection.execute(query)
-
-    async def safe_execute(self, query, packed_values):
-        await self._connection.execute(query, packed_values)
-
-    async def execute_many(self, query, dictionary):
-        self._connection.prepare_threshold = None
-        cursor = self._connection.cursor()
-        await cursor.executemany(query, dictionary, returning=False)
-
-    async def execute_multiple(self, queries):
-        for item in queries:
-            query = item[0]
-            packed_values = item[1] if len(item) > 1 else None
-            if packed_values:
-                await self._connection.execute(query, packed_values)
-            else:
-                await self._connection.execute(query)
-
-    async def fetch_data(self, query, packed_data=None):
-        cursor = self._connection.cursor()
-        if packed_data:
-            await cursor.execute(query, packed_data)
-        else:
-            await cursor.execute(query)
-        return await cursor.fetchall()
-
-    async def commit(self):
-        """Commit the transaction early.
-
-        After this call, the outer ``async with conn.transaction():``
-        block's commit-on-exit becomes a no-op (no active transaction).
-        """
-        await self._connection.commit()
-        self._completed_manually = True
-
-    async def rollback(self):
-        """Rollback the transaction early.
-
-        After this call, the outer ``async with conn.transaction():``
-        block's rollback-on-exception becomes a no-op (no active
-        transaction).
-        """
-        await self._connection.rollback()
-        self._completed_manually = True
-
-
-"""~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
-
-
 class SyncExecutor(ABC):
     """Sync mirror of :class:`AsyncExecutor`. Same surface, synchronous signatures.
 
@@ -354,71 +207,73 @@ class SyncExecutor(ABC):
     """
 
     @abstractmethod
-    def execute(self, query): ...
+    def execute(self, query: SQL | Composed | str) -> int: ...
 
     @abstractmethod
-    def safe_execute(self, query, packed_values): ...
+    def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> int: ...
 
     @abstractmethod
-    def execute_many(self, query, dictionary): ...
+    def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int: ...
 
     @abstractmethod
-    def execute_multiple(self, queries): ...
+    def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int: ...
 
     @abstractmethod
-    def fetch_data(self, query, packed_data=None): ...
+    def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]: ...
 
-    def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan: bool = False) -> int:
+    def export_df_to_warehouse(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        columns: list[str],
+        remove_nan: bool = False,
+    ) -> int:
+        """Insert every row of ``df[columns]`` into ``table_name``.
+
+        :param df: source DataFrame
+        :param table_name: destination table (may be schema-qualified)
+        :param columns: columns to insert; must be a subset of ``df.columns``
+        :param remove_nan: convert NaN/NaT values to NULL before insert
+        :return: number of records inserted (``0`` if ``df`` is empty)
         """
-        Export the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns to insert
-        :param remove_nan: remove NaN values
-        :return: Number of records inserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-
+        columns = list(columns)
         if not columns:
             raise ValueError("columns cannot be empty")
         if not set(columns).issubset(set(df.columns)):
             raise ValueError("columns must be a subset of DataFrame columns")
         if df.empty:
             return 0
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
-        query = SQL("INSERT INTO {} ({}) VALUES ({})").format(table_id, col_ids, placeholders)
+        query, records = _build_insert_for_df(df, table_name, columns, remove_nan)
         self.execute_many(query, records)
         return len(records)
 
-    def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan: bool = False) -> int:
+    def upsert_df_to_warehouse(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        columns: list[str],
+        match_cols: list[str],
+        remove_nan: bool = False,
+    ) -> int:
+        """Upsert every row of ``df[columns]`` into ``table_name`` using
+        ``ON CONFLICT (match_cols)``.
+
+        :param df: source DataFrame
+        :param table_name: destination table (may be schema-qualified)
+        :param columns: columns to write (must be a superset of ``match_cols``)
+        :param match_cols: conflict columns (must have a matching index/PK
+            on the destination)
+        :param remove_nan: convert NaN/NaT values to NULL before upsert
+        :return: number of records sent to the server (``0`` if ``df`` is empty)
         """
-        Upsert the DataFrame to the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param columns: list of columns
-        :param match_cols: list of columns to match on
-        :param remove_nan: remove NaN values
-        :return: Number of records upserted
-        """
-
-        columns = list(columns) if not isinstance(columns, list) else columns
-        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
-
+        columns = list(columns)
+        match_cols = list(match_cols)
         if not columns:
             raise ValueError("columns cannot be empty")
         if not match_cols:
@@ -427,69 +282,29 @@ class SyncExecutor(ABC):
             raise ValueError("match_cols must be a subset of columns")
         if df.empty:
             return 0
-
-        update_cols = [c for c in columns if c not in match_cols]
-
-        col_ids = SQL(", ").join(Identifier(c) for c in columns)
-        match_ids = SQL(", ").join(Identifier(c) for c in match_cols)
-        placeholders = SQL(", ").join(Placeholder() for _ in columns)
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-
-        if update_cols:
-            updates = SQL(", ").join(
-                SQL("{} = EXCLUDED.{}").format(Identifier(c), Identifier(c))
-                for c in update_cols
-            )
-            conflict_action = SQL("DO UPDATE SET {}").format(updates)
-        else:
-            conflict_action = SQL("DO NOTHING")
-
-        query = SQL(
-            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
-        ).format(table_id, col_ids, placeholders, match_ids, conflict_action)
-
-        df_copy = df[columns].copy()
-        if remove_nan:
-            df_copy = df_copy.replace({np.nan: None, pd.NaT: None})
-        df_copy = df_copy.replace({"": None})
-
-        records = list(df_copy.itertuples(index=False, name=None))
+        query, records = _build_upsert_for_df(df, table_name, columns, match_cols, remove_nan)
         self.execute_many(query, records)
         return len(records)
 
     def truncate_table(self, table_name: str) -> None:
-        """
-        Truncate the table
+        """Truncate ``table_name`` (schema-qualified names supported).
 
-        :param table_name: table name
-        :return: None
+        :raises ValueError: if ``table_name`` is empty
         """
-
         if not table_name:
             raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        truncate_query = SQL("TRUNCATE TABLE {}").format(table_id)
-        self.execute(truncate_query)
+        query = SQL("TRUNCATE TABLE {}").format(_table_identifier(table_name))
+        self.execute(query)
 
     def empty_table(self, table_name: str) -> None:
-        """
-        Empty the table
+        """Delete every row from ``table_name`` (retains the table).
 
-        :param table_name: table name
-        :return: None
+        :raises ValueError: if ``table_name`` is empty
         """
-
         if not table_name:
             raise ValueError("table_name cannot be empty")
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        delete_query = SQL("DELETE FROM {}").format(table_id)
-        self.execute(delete_query)
+        query = SQL("DELETE FROM {}").format(_table_identifier(table_name))
+        self.execute(query)
 
 
 class Transaction(SyncExecutor):
@@ -512,37 +327,51 @@ class Transaction(SyncExecutor):
     transaction boundary via :meth:`PostgresConnection.retry_transaction`.
     """
 
-    def __init__(self, parent, connection):
+    def __init__(self, parent: "PostgresConnection", connection: Connection) -> None:
         self._parent = parent
         self._connection = connection
         self._completed_manually = False
 
     @property
-    def connection(self):
+    def connection(self) -> Connection:
         """The underlying psycopg3 ``Connection`` (escape hatch)."""
         return self._connection
 
-    def execute(self, query):
-        self._connection.execute(query)
+    def execute(self, query: SQL | Composed | str) -> int:
+        cursor = self._connection.execute(query)
+        return max(cursor.rowcount, 0)
 
-    def safe_execute(self, query, packed_values):
-        self._connection.execute(query, packed_values)
+    def safe_execute(
+        self, query: SQL | Composed | str, packed_values: dict
+    ) -> int:
+        cursor = self._connection.execute(query, packed_values)
+        return max(cursor.rowcount, 0)
 
-    def execute_many(self, query, dictionary):
+    def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int:
         self._connection.prepare_threshold = None
         cursor = self._connection.cursor()
         cursor.executemany(query, dictionary, returning=False)
+        return max(cursor.rowcount, 0)
 
-    def execute_multiple(self, queries):
+    def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int:
+        total = 0
         for item in queries:
             query = item[0]
             packed_values = item[1] if len(item) > 1 else None
             if packed_values:
-                self._connection.execute(query, packed_values)
+                cursor = self._connection.execute(query, packed_values)
             else:
-                self._connection.execute(query)
+                cursor = self._connection.execute(query)
+            total += max(cursor.rowcount, 0)
+        return total
 
-    def fetch_data(self, query, packed_data=None):
+    def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]:
         cursor = self._connection.cursor()
         if packed_data:
             cursor.execute(query, packed_data)
@@ -550,7 +379,7 @@ class Transaction(SyncExecutor):
             cursor.execute(query)
         return cursor.fetchall()
 
-    def commit(self):
+    def commit(self) -> None:
         """Commit the transaction early.
 
         After this call, the outer ``with conn.transaction():`` block's
@@ -559,7 +388,7 @@ class Transaction(SyncExecutor):
         self._connection.commit()
         self._completed_manually = True
 
-    def rollback(self):
+    def rollback(self) -> None:
         """Rollback the transaction early.
 
         After this call, the outer ``with conn.transaction():`` block's
@@ -570,10 +399,42 @@ class Transaction(SyncExecutor):
 
 
 class PostgresConnection(SyncExecutor):
-    """
-    SQL Connection Class
+    """Synchronous Postgres connection manager.
 
-    :return: None
+    Construct, then call :meth:`set_user` with a credentials dict to
+    establish the connection (or pool). All five primitives and every
+    inherited composite honor the retry policy defined in
+    :mod:`wcp_library.sql`.
+
+    **Autocommit mode (default)** — each primitive commits after the
+    statement and, when pooled, returns the connection on the same call.
+
+    **Caller-driven transactions** — either:
+
+    * construct with ``autocommit=False`` for the whole instance and
+      drive commits manually via :meth:`commit` / :meth:`rollback`, *or*
+    * use :meth:`transaction` (recommended) to open a transactional
+      block scoped to one held connection.
+
+    .. warning::
+        When ``autocommit=False``, statements accumulate in an open
+        transaction on ``self._connection``. If the instance is
+        garbage-collected (or the process exits) without a prior
+        :meth:`commit`, psycopg3 rolls back on close — *uncommitted
+        statements are silently dropped*. Always pair
+        ``autocommit=False`` with an explicit commit path, or prefer
+        :meth:`transaction` which handles this automatically.
+
+    Use as a context manager (``with PostgresConnection() as conn:``)
+    to guarantee :meth:`close_connection` runs.
+
+    :param use_pool: back the instance with a pool instead of a single
+        connection
+    :param min_connections: pool minimum size (when ``use_pool=True``)
+    :param max_connections: pool maximum size (when ``use_pool=True``)
+    :param autocommit: per-primitive autocommit (default ``True``)
+    :raises ValueError: if ``use_pool=True`` is combined with
+        ``autocommit=False`` (unsupported combination)
     """
 
     def __init__(
@@ -641,13 +502,11 @@ class PostgresConnection(SyncExecutor):
             return self._connection
 
     def set_user(self, credentials_dict: dict) -> None:
-        """
-        Set the user credentials and connect
+        """Store credentials and open the connection (or pool).
 
-        :param credentials_dict: dictionary of connection details
-        :return: None
+        :param credentials_dict: must contain keys ``UserName``, ``Password``,
+            ``Host``, ``Port``, ``Database``
         """
-
         self._username = credentials_dict['UserName']
         self._password = credentials_dict['Password']
         self._hostname = credentials_dict['Host']
@@ -657,12 +516,7 @@ class PostgresConnection(SyncExecutor):
         self._connect()
 
     def close_connection(self) -> None:
-        """
-        Close the connection
-
-        :return: None
-        """
-
+        """Close the pool (if pooled) or the single connection."""
         if self.use_pool:
             self._session_pool.close()
         else:
@@ -671,97 +525,109 @@ class PostgresConnection(SyncExecutor):
             self._connection = None
 
     @retry
-    def execute(self, query: SQL | Composed | str) -> None:
-        """
-        Execute the query
+    def execute(self, query: SQL | Composed | str) -> int:
+        """Execute a single statement.
 
-        :param query: query
-        :return: None
+        :param query: query (``SQL``, ``Composed``, or raw string)
+        :return: rows affected (``0`` for DDL or statements where the
+            driver does not report a rowcount)
         """
-
         connection = self._get_connection()
         try:
-            connection.execute(query)
+            cursor = connection.execute(query)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
     @retry
-    def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
-        """
-        Execute the query without SQL Injection possibility, to be used with external facing projects.
+    def safe_execute(
+        self, query: SQL | Composed | str, packed_values: dict
+    ) -> int:
+        """Execute a parameterized statement (safe against SQL injection).
 
-        :param query: query
-        :param packed_values: dictionary of values
-        :return: None
+        :param query: query (``SQL``, ``Composed``, or raw string with
+            ``%s`` / ``%(name)s`` placeholders)
+        :param packed_values: values for the placeholders
+        :return: rows affected
         """
-
         connection = self._get_connection()
         try:
-            connection.execute(query, packed_values)
+            cursor = connection.execute(query, packed_values)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
     @retry
-    def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
-        """
-        Execute multiple queries
+    def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int:
+        """Execute a sequence of ``(query, packed_values)`` pairs in order.
 
-        :param queries: list of queries
-        :return: None
-        """
+        Each tuple may omit ``packed_values`` (i.e. a one-element tuple is
+        treated as "no params").
 
+        :param queries: list of ``(query, packed_values_or_missing)`` tuples
+        :return: sum of rows affected across all statements
+        """
         connection = self._get_connection()
         try:
+            total = 0
             for item in queries:
                 query = item[0]
                 packed_values = item[1] if len(item) > 1 else None
                 if packed_values:
-                    connection.execute(query, packed_values)
+                    cursor = connection.execute(query, packed_values)
                 else:
-                    connection.execute(query)
+                    cursor = connection.execute(query)
+                total += max(cursor.rowcount, 0)
             if self._autocommit:
                 connection.commit()
+            return total
         finally:
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
     @retry
-    def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
-        """
-        Execute many queries
+    def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int:
+        """Execute the same query once per record in ``dictionary``.
 
-        :param query: query
-        :param dictionary: dictionary of values
-        :return: None
+        :param query: query with placeholders
+        :param dictionary: iterable of parameter dicts or tuples
+        :return: rows affected
         """
-
         connection = self._get_connection()
         try:
             connection.prepare_threshold = None
             cursor = connection.cursor()
             cursor.executemany(query, dictionary, returning=False)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
     @retry
-    def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
-        """
-        Fetch the data from the query
+    def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]:
+        """Execute ``query`` and return every row.
 
-        :param query: query
-        :param packed_data: packed data
-        :return: rows
+        :param query: SELECT query
+        :param packed_data: optional parameter dict
+        :return: list of row tuples
         """
-
         connection = self._get_connection()
         try:
             cursor = connection.cursor()
@@ -834,8 +700,14 @@ class PostgresConnection(SyncExecutor):
             if self.use_pool:
                 self._session_pool.putconn(connection)
 
-    def retry_transaction(self, fn):
-        """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
+    def retry_transaction(
+        self,
+        fn: Callable[..., _T],
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        """Run ``fn(tx, *args, **kwargs)`` inside a transaction with retry at
+        the transaction boundary.
 
         Sync mirror of :meth:`AsyncPostgresConnection.retry_transaction`.
         On retriable Postgres errors (``full_code`` in
@@ -847,9 +719,12 @@ class PostgresConnection(SyncExecutor):
         This is the transaction-scoped equivalent of the ``@retry``
         decorator: same exception filtering, same backoff, same
         attempt limit, just applied at the granularity of the whole
-        ``with self.transaction() as tx: fn(tx)`` block.
+        ``with self.transaction() as tx: fn(tx, *args, **kwargs)`` block.
 
-        :param fn: callable taking a :class:`Transaction`, returning any value
+        :param fn: callable; receives a :class:`Transaction` as its first
+            argument, followed by any extra positional/keyword args
+        :param args: forwarded to ``fn`` after the transaction handle
+        :param kwargs: forwarded to ``fn``
         :return: the return value of the successful ``fn`` invocation
         :raises: the final exception if all attempts fail, or any non-
             retriable error immediately
@@ -858,7 +733,7 @@ class PostgresConnection(SyncExecutor):
         while True:
             try:
                 with self.transaction() as tx:
-                    return fn(tx)
+                    return fn(tx, *args, **kwargs)
             except (psycopg.OperationalError, psycopg.DatabaseError) as e:
                 action, full_code, message = classify_db_exception(e, self.retry_error_codes)
                 if action == "raise":
@@ -871,74 +746,284 @@ class PostgresConnection(SyncExecutor):
                 time.sleep(_RETRY_SLEEP_SECONDS)
 
     @retry
-    def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
+    def remove_matching_data(
+        self, df: pd.DataFrame, table_name: str, match_cols: list[str]
+    ) -> int:
+        """Delete rows from ``table_name`` that match any row in ``df[match_cols]``.
+
+        :param df: source DataFrame whose rows identify targets for deletion
+        :param table_name: destination table (may be schema-qualified)
+        :param match_cols: columns used to match rows; must be a subset of
+            ``df.columns``
+        :return: number of distinct match-tuples sent to the server
+            (``0`` if ``df`` is empty)
         """
-        Remove matching data from the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param match_cols: list of columns to match on
-        :return: Number of records matched for deletion
-        """
-
-        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
-
+        match_cols = list(match_cols)
         if not match_cols:
             raise ValueError("match_cols cannot be empty")
         if not set(match_cols).issubset(set(df.columns)):
             raise ValueError("match_cols must be a subset of DataFrame columns")
         if df.empty:
             return 0
+        query, records = _build_delete_matching_for_df(df, table_name, match_cols)
+        self.execute_many(query, records)
+        return len(records)
 
-        df_subset = df[match_cols].drop_duplicates(keep='first')
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        conditions = SQL(" AND ").join(
-            SQL("{} = {}").format(Identifier(c), Placeholder(c)) for c in match_cols
-        )
-        query = SQL("DELETE FROM {} WHERE {}").format(table_id, conditions)
-
-        main_dict = df_subset.to_dict('records')
-        self.execute_many(query, main_dict)
-        return len(main_dict)
-
-    def __enter__(self):
-        """
-        Context manager entry
-
-        :return: self
-        """
+    def __enter__(self) -> "PostgresConnection":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Context manager exit
-
-        :return: None
-        """
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close the connection/pool on exit and propagate any exception."""
         self.close_connection()
         return False
 
-    def __del__(self) -> None:
+
+"""~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""
+
+
+class AsyncExecutor(ABC):
+    """Abstract executor for async Postgres operations.
+
+    Concrete subclasses implement the five primitives (execute,
+    safe_execute, execute_many, execute_multiple, fetch_data). The
+    composite data-manipulation methods (export_df_to_warehouse,
+    upsert_df_to_warehouse, truncate_table, empty_table) live here
+    and call self.<primitive> -- dispatch is correct on both
+    AsyncPostgresConnection (per-call pool checkout) and
+    AsyncTransaction (single held connection) because both implement
+    the same primitive surface.
+    """
+
+    @abstractmethod
+    async def execute(self, query: SQL | Composed | str) -> int: ...
+
+    @abstractmethod
+    async def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> int: ...
+
+    @abstractmethod
+    async def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int: ...
+
+    @abstractmethod
+    async def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int: ...
+
+    @abstractmethod
+    async def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]: ...
+
+    async def export_df_to_warehouse(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        columns: list[str],
+        remove_nan: bool = False,
+    ) -> int:
+        """Insert every row of ``df[columns]`` into ``table_name``.
+
+        :param df: source DataFrame
+        :param table_name: destination table (may be schema-qualified)
+        :param columns: columns to insert; must be a subset of ``df.columns``
+        :param remove_nan: convert NaN/NaT values to NULL before insert
+        :return: number of records inserted (``0`` if ``df`` is empty)
         """
-        Destructor. Uses ``getattr`` fallbacks so a half-initialized
-        instance (e.g., one whose ``__init__`` raised the autocommit+pool
-        guard) doesn't explode during garbage collection.
+        columns = list(columns)
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not set(columns).issubset(set(df.columns)):
+            raise ValueError("columns must be a subset of DataFrame columns")
+        if df.empty:
+            return 0
+        query, records = _build_insert_for_df(df, table_name, columns, remove_nan)
+        await self.execute_many(query, records)
+        return len(records)
+
+    async def upsert_df_to_warehouse(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        columns: list[str],
+        match_cols: list[str],
+        remove_nan: bool = False,
+    ) -> int:
+        """Upsert every row of ``df[columns]`` into ``table_name`` using
+        ``ON CONFLICT (match_cols)``.
+
+        :param df: source DataFrame
+        :param table_name: destination table (may be schema-qualified)
+        :param columns: columns to write (must be a superset of ``match_cols``)
+        :param match_cols: conflict columns (must have a matching index/PK
+            on the destination)
+        :param remove_nan: convert NaN/NaT values to NULL before upsert
+        :return: number of records sent to the server (``0`` if ``df`` is empty)
         """
-        pool = getattr(self, "_session_pool", None)
-        conn = getattr(self, "_connection", None)
-        if pool is not None:
-            pool.close()
-        elif conn is not None and not conn.closed:
-            conn.close()
+        columns = list(columns)
+        match_cols = list(match_cols)
+        if not columns:
+            raise ValueError("columns cannot be empty")
+        if not match_cols:
+            raise ValueError("match_cols cannot be empty")
+        if not set(match_cols).issubset(set(columns)):
+            raise ValueError("match_cols must be a subset of columns")
+        if df.empty:
+            return 0
+        query, records = _build_upsert_for_df(df, table_name, columns, match_cols, remove_nan)
+        await self.execute_many(query, records)
+        return len(records)
+
+    async def truncate_table(self, table_name: str) -> None:
+        """Truncate ``table_name`` (schema-qualified names supported).
+
+        :raises ValueError: if ``table_name`` is empty
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+        query = SQL("TRUNCATE TABLE {}").format(_table_identifier(table_name))
+        await self.execute(query)
+
+    async def empty_table(self, table_name: str) -> None:
+        """Delete every row from ``table_name`` (retains the table).
+
+        :raises ValueError: if ``table_name`` is empty
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty")
+        query = SQL("DELETE FROM {}").format(_table_identifier(table_name))
+        await self.execute(query)
+
+
+class AsyncTransaction(AsyncExecutor):
+    """Handle yielded by ``AsyncPostgresConnection.transaction()``.
+
+    All primitives run on the single held psycopg3 AsyncConnection and
+    do NOT commit per call. The transaction is committed on normal
+    context-manager exit and rolled back on exception (by psycopg3's
+    native transaction context). Manual :meth:`commit` / :meth:`rollback`
+    are available for early termination; after either is called, the
+    outer context manager's commit/rollback becomes a no-op because no
+    transaction remains open.
+
+    Composite methods (``upsert_df_to_warehouse``, ``truncate_table``,
+    etc.) are inherited from :class:`AsyncExecutor` and dispatch to the
+    primitives on this class -- so they run transactionally too.
+
+    No retry decoration on the primitives here: retry belongs at the
+    transaction boundary via :meth:`AsyncPostgresConnection.retry_transaction`.
+    """
+
+    def __init__(self, parent: "AsyncPostgresConnection", connection: AsyncConnection) -> None:
+        self._parent = parent
+        self._connection = connection
+        self._completed_manually = False
+
+    @property
+    def connection(self) -> AsyncConnection:
+        """The underlying psycopg3 ``AsyncConnection`` (escape hatch)."""
+        return self._connection
+
+    async def execute(self, query: SQL | Composed | str) -> int:
+        cursor = await self._connection.execute(query)
+        return max(cursor.rowcount, 0)
+
+    async def safe_execute(
+        self, query: SQL | Composed | str, packed_values: dict
+    ) -> int:
+        cursor = await self._connection.execute(query, packed_values)
+        return max(cursor.rowcount, 0)
+
+    async def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int:
+        self._connection.prepare_threshold = None
+        cursor = self._connection.cursor()
+        await cursor.executemany(query, dictionary, returning=False)
+        return max(cursor.rowcount, 0)
+
+    async def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int:
+        total = 0
+        for item in queries:
+            query = item[0]
+            packed_values = item[1] if len(item) > 1 else None
+            if packed_values:
+                cursor = await self._connection.execute(query, packed_values)
+            else:
+                cursor = await self._connection.execute(query)
+            total += max(cursor.rowcount, 0)
+        return total
+
+    async def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]:
+        cursor = self._connection.cursor()
+        if packed_data:
+            await cursor.execute(query, packed_data)
+        else:
+            await cursor.execute(query)
+        return await cursor.fetchall()
+
+    async def commit(self) -> None:
+        """Commit the transaction early.
+
+        After this call, the outer ``async with conn.transaction():``
+        block's commit-on-exit becomes a no-op (no active transaction).
+        """
+        await self._connection.commit()
+        self._completed_manually = True
+
+    async def rollback(self) -> None:
+        """Rollback the transaction early.
+
+        After this call, the outer ``async with conn.transaction():``
+        block's rollback-on-exception becomes a no-op (no active
+        transaction).
+        """
+        await self._connection.rollback()
+        self._completed_manually = True
 
 
 class AsyncPostgresConnection(AsyncExecutor):
-    """
-    SQL Connection Class
+    """Asynchronous Postgres connection manager.
 
-    :return: None
+    Construct, then ``await set_user(credentials)`` to establish the
+    connection (or pool). All five primitives and every inherited
+    composite honor the async retry policy defined in
+    :mod:`wcp_library.sql`.
+
+    **Autocommit mode (default)** — each primitive commits after the
+    statement and, when pooled, returns the connection on the same call.
+
+    **Caller-driven transactions** — either:
+
+    * construct with ``autocommit=False`` for the whole instance and
+      drive commits manually via :meth:`commit` / :meth:`rollback`, *or*
+    * use :meth:`transaction` (recommended) to open a transactional
+      block scoped to one held connection.
+
+    .. warning::
+        When ``autocommit=False``, statements accumulate in an open
+        transaction on ``self._connection``. If the instance is
+        garbage-collected (or the process exits) without a prior
+        :meth:`commit`, psycopg3 rolls back on close — *uncommitted
+        statements are silently dropped*. Always pair
+        ``autocommit=False`` with an explicit commit path, or prefer
+        :meth:`transaction` which handles this automatically.
+
+    Use as an async context manager
+    (``async with AsyncPostgresConnection() as conn:``) to guarantee
+    :meth:`close_connection` runs.
+
+    :param use_pool: back the instance with a pool instead of a single
+        connection
+    :param min_connections: pool minimum size (when ``use_pool=True``)
+    :param max_connections: pool maximum size (when ``use_pool=True``)
+    :param autocommit: per-primitive autocommit (default ``True``)
+    :raises ValueError: if ``use_pool=True`` is combined with
+        ``autocommit=False`` (unsupported combination)
     """
 
     def __init__(
@@ -1008,13 +1093,11 @@ class AsyncPostgresConnection(AsyncExecutor):
 
 
     async def set_user(self, credentials_dict: dict) -> None:
-        """
-        Set the user credentials and connect
+        """Store credentials and open the connection (or pool).
 
-        :param credentials_dict: dictionary of connection details
-        :return: None
+        :param credentials_dict: must contain keys ``UserName``, ``Password``,
+            ``Host``, ``Port``, ``Database``
         """
-
         self._username = credentials_dict['UserName']
         self._password = credentials_dict['Password']
         self._hostname = credentials_dict['Host']
@@ -1024,12 +1107,7 @@ class AsyncPostgresConnection(AsyncExecutor):
         await self._connect()
 
     async def close_connection(self) -> None:
-        """
-        Close the connection
-
-        :return: None
-        """
-
+        """Close the pool (if pooled) or the single connection."""
         if self.use_pool:
             await self._session_pool.close()
         else:
@@ -1038,97 +1116,109 @@ class AsyncPostgresConnection(AsyncExecutor):
             self._connection = None
 
     @async_retry
-    async def execute(self, query: SQL | Composed | str) -> None:
-        """
-        Execute the query
+    async def execute(self, query: SQL | Composed | str) -> int:
+        """Execute a single statement.
 
-        :param query: query
-        :return: None
+        :param query: query (``SQL``, ``Composed``, or raw string)
+        :return: rows affected (``0`` for DDL or statements where the
+            driver does not report a rowcount)
         """
-
         connection = await self._get_connection()
         try:
-            await connection.execute(query)
+            cursor = await connection.execute(query)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 await connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
     @async_retry
-    async def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> None:
-        """
-        Execute the query without SQL Injection possibility, to be used with external facing projects.
+    async def safe_execute(
+        self, query: SQL | Composed | str, packed_values: dict
+    ) -> int:
+        """Execute a parameterized statement (safe against SQL injection).
 
-        :param query: query
-        :param packed_values: dictionary of values
-        :return: None
+        :param query: query (``SQL``, ``Composed``, or raw string with
+            ``%s`` / ``%(name)s`` placeholders)
+        :param packed_values: values for the placeholders
+        :return: rows affected
         """
-
         connection = await self._get_connection()
         try:
-            await connection.execute(query, packed_values)
+            cursor = await connection.execute(query, packed_values)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 await connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
     @async_retry
-    async def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> None:
-        """
-        Execute multiple queries
+    async def execute_multiple(
+        self, queries: list[tuple[SQL | Composed | str, dict]]
+    ) -> int:
+        """Execute a sequence of ``(query, packed_values)`` pairs in order.
 
-        :param queries: list of queries
-        :return: None
-        """
+        Each tuple may omit ``packed_values`` (i.e. a one-element tuple is
+        treated as "no params").
 
+        :param queries: list of ``(query, packed_values_or_missing)`` tuples
+        :return: sum of rows affected across all statements
+        """
         connection = await self._get_connection()
         try:
+            total = 0
             for item in queries:
                 query = item[0]
                 packed_values = item[1] if len(item) > 1 else None
                 if packed_values:
-                    await connection.execute(query, packed_values)
+                    cursor = await connection.execute(query, packed_values)
                 else:
-                    await connection.execute(query)
+                    cursor = await connection.execute(query)
+                total += max(cursor.rowcount, 0)
             if self._autocommit:
                 await connection.commit()
+            return total
         finally:
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
     @async_retry
-    async def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:
-        """
-        Execute many queries
+    async def execute_many(
+        self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]
+    ) -> int:
+        """Execute the same query once per record in ``dictionary``.
 
-        :param query: query
-        :param dictionary: dictionary of values
-        :return: None
+        :param query: query with placeholders
+        :param dictionary: iterable of parameter dicts or tuples
+        :return: rows affected
         """
-
         connection = await self._get_connection()
         try:
             connection.prepare_threshold = None
             cursor = connection.cursor()
             await cursor.executemany(query, dictionary, returning=False)
+            rowcount = max(cursor.rowcount, 0)
             if self._autocommit:
                 await connection.commit()
+            return rowcount
         finally:
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
     @async_retry
-    async def fetch_data(self, query: SQL | Composed | str, packed_data=None) -> list[tuple]:
-        """
-        Fetch the data from the query
+    async def fetch_data(
+        self, query: SQL | Composed | str, packed_data: dict | None = None
+    ) -> list[tuple]:
+        """Execute ``query`` and return every row.
 
-        :param query: query
-        :param packed_data: packed data
-        :return: rows
+        :param query: SELECT query
+        :param packed_data: optional parameter dict
+        :return: list of row tuples
         """
-
         connection = await self._get_connection()
         try:
             cursor = connection.cursor()
@@ -1202,8 +1292,14 @@ class AsyncPostgresConnection(AsyncExecutor):
             if self.use_pool:
                 await self._session_pool.putconn(connection)
 
-    async def retry_transaction(self, fn):
-        """Run ``fn(tx)`` inside a transaction with retry at the transaction boundary.
+    async def retry_transaction(
+        self,
+        fn: Callable[..., Awaitable[_T]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        """Run ``await fn(tx, *args, **kwargs)`` inside a transaction with
+        retry at the transaction boundary.
 
         On retriable Postgres errors (``full_code`` in ``self.retry_error_codes``),
         the transaction is rolled back, the coroutine waits 5 minutes per the
@@ -1213,9 +1309,12 @@ class AsyncPostgresConnection(AsyncExecutor):
         This is the transaction-scoped equivalent of the ``@async_retry``
         decorator: same exception filtering, same backoff, same attempt
         limit, just applied at the granularity of the whole ``async with
-        self.transaction() as tx: await fn(tx)`` block.
+        self.transaction() as tx: await fn(tx, *args, **kwargs)`` block.
 
-        :param fn: async callable taking an :class:`AsyncTransaction`, returning any value
+        :param fn: async callable; receives an :class:`AsyncTransaction` as
+            its first argument, followed by any extra positional/keyword args
+        :param args: forwarded to ``fn`` after the transaction handle
+        :param kwargs: forwarded to ``fn``
         :return: the return value of the successful ``fn`` invocation
         :raises: the final exception if all attempts fail, or any non-
             retriable error immediately
@@ -1224,7 +1323,7 @@ class AsyncPostgresConnection(AsyncExecutor):
         while True:
             try:
                 async with self.transaction() as tx:
-                    return await fn(tx)
+                    return await fn(tx, *args, **kwargs)
             except (psycopg.OperationalError, psycopg.DatabaseError) as e:
                 action, full_code, message = classify_db_exception(e, self.retry_error_codes)
                 if action == "raise":
@@ -1237,51 +1336,34 @@ class AsyncPostgresConnection(AsyncExecutor):
                 await asyncio.sleep(_RETRY_SLEEP_SECONDS)
 
     @async_retry
-    async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list) -> int:
+    async def remove_matching_data(
+        self, df: pd.DataFrame, table_name: str, match_cols: list[str]
+    ) -> int:
+        """Delete rows from ``table_name`` that match any row in ``df[match_cols]``.
+
+        :param df: source DataFrame whose rows identify targets for deletion
+        :param table_name: destination table (may be schema-qualified)
+        :param match_cols: columns used to match rows; must be a subset of
+            ``df.columns``
+        :return: number of distinct match-tuples sent to the server
+            (``0`` if ``df`` is empty)
         """
-        Remove matching data from the warehouse
-
-        :param df: DataFrame
-        :param table_name: output table name
-        :param match_cols: list of columns to match on
-        :return: Number of records matched for deletion
-        """
-
-        match_cols = list(match_cols) if not isinstance(match_cols, list) else match_cols
-
+        match_cols = list(match_cols)
         if not match_cols:
             raise ValueError("match_cols cannot be empty")
         if not set(match_cols).issubset(set(df.columns)):
             raise ValueError("match_cols must be a subset of DataFrame columns")
         if df.empty:
             return 0
+        query, records = _build_delete_matching_for_df(df, table_name, match_cols)
+        await self.execute_many(query, records)
+        return len(records)
 
-        df_subset = df[match_cols].drop_duplicates(keep='first')
-
-        table_parts = table_name.split(".")
-        table_id = Identifier(*table_parts)
-        conditions = SQL(" AND ").join(
-            SQL("{} = {}").format(Identifier(c), Placeholder(c)) for c in match_cols
-        )
-        query = SQL("DELETE FROM {} WHERE {}").format(table_id, conditions)
-
-        main_dict = df_subset.to_dict('records')
-        await self.execute_many(query, main_dict)
-        return len(main_dict)
-
-    async def __aenter__(self):
-        """
-        Async context manager entry
-
-        :return: self
-        """
+    async def __aenter__(self) -> "AsyncPostgresConnection":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """
-        Async context manager exit
-
-        :return: None
-        """
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close the connection/pool on exit and propagate any exception."""
         await self.close_connection()
         return False
+

@@ -10,6 +10,15 @@ from wcp_library.sql.postgres import (
 )
 
 
+def _make_mock_cursor(rowcount=1):
+    c = MagicMock(name="Cursor")
+    c.rowcount = rowcount
+    c.executemany = MagicMock()
+    c.execute = MagicMock()
+    c.fetchall = MagicMock(return_value=[(1, "a"), (2, "b")])
+    return c
+
+
 def _make_mock_connection():
     conn = MagicMock(name="Connection")
     conn.autocommit = True
@@ -17,16 +26,16 @@ def _make_mock_connection():
     # sync psycopg3 Connection.autocommit is a plain property, not set_autocommit
     # Mock's attribute assignment works naturally.
 
+    # connection.execute returns a cursor-like with .rowcount
+    conn.execute = MagicMock(return_value=_make_mock_cursor(rowcount=1))
+
     # Native transaction() context manager (sync)
     tx_ctx = MagicMock(name="NativeTxCtx")
     tx_ctx.__enter__ = MagicMock(return_value=tx_ctx)
     tx_ctx.__exit__ = MagicMock(return_value=False)
     conn.transaction = MagicMock(return_value=tx_ctx)
 
-    cursor = MagicMock(name="Cursor")
-    cursor.executemany = MagicMock()
-    cursor.execute = MagicMock()
-    cursor.fetchall = MagicMock(return_value=[(1, "a"), (2, "b")])
+    cursor = _make_mock_cursor(rowcount=2)
     conn.cursor = MagicMock(return_value=cursor)
     return conn, cursor, tx_ctx
 
