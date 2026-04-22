@@ -38,7 +38,7 @@ from typing import Tuple
 import aiofiles
 import requests
 
-from wcp_library.graph import REQUEST_TIMEOUT
+from wcp_library.graph import REQUEST_TIMEOUT, _request
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,7 @@ def get_mailbox_folders(
         url += f"/{parent_folder_id}/childFolders"
 
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
@@ -100,8 +99,7 @@ def get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | N
     """
     url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error(
@@ -127,8 +125,7 @@ def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> lis
     url += "/messages"
 
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         data = response.json()
         return data.get("value", [])
     except requests.RequestException as e:
@@ -148,8 +145,7 @@ def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
     """
     url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}/attachments"
     try:
-        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        resp = _request("GET", url, headers)
         data = resp.json()
         return [
             {

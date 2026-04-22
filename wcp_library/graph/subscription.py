@@ -55,7 +55,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from wcp_library.graph import REQUEST_TIMEOUT
+from wcp_library.graph import REQUEST_TIMEOUT, _request
 
 logger = logging.getLogger(__name__)
 
@@ -92,13 +92,12 @@ def create_subscription(
     }
 
     try:
-        response = requests.post(
+        response = _request(
+            "POST",
             url,
-            headers=headers,
+            headers,
             json=payload,
-            timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         data = response.json()
         logger.info("Subscription created with ID: %s", data.get("id"))
     except requests.RequestException as e:
@@ -118,8 +117,7 @@ def get_subscription(headers: dict, subscription_id: str) -> dict | None:
     """
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json()
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -143,10 +141,9 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     body = {"expirationDateTime": expiration_datetime}
 
     try:
-        response = requests.patch(
-            url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
+        response = _request(
+            "PATCH", url, headers, json=body
         )
-        response.raise_for_status()
         logger.info(
             "Subscription %s has been renewed until %s",
             subscription_id,
@@ -223,8 +220,7 @@ def list_subscriptions(headers: dict) -> list[dict] | None:
     """
     url = "https://graph.microsoft.com/v1.0/subscriptions"
     try:
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("GET", url, headers)
         return response.json().get("value", [])
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -241,8 +237,7 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
     """
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     try:
-        response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("DELETE", url, headers)
         logger.info("Subscription %s has been deleted", subscription_id)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -263,8 +258,7 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
         f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}/reauthorize"
     )
     try:
-        response = requests.post(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = _request("POST", url, headers)
         logger.info("Subscription %s has been reauthorized", subscription_id)
     except requests.RequestException as e:
         logger.error("Error: %s", e)
@@ -304,10 +298,9 @@ def update_notification_url(
     body = {"notificationUrl": new_notification_url}
 
     try:
-        response = requests.patch(
-            url, headers=headers, json=body, timeout=REQUEST_TIMEOUT
+        response = _request(
+            "PATCH", url, headers, json=body
         )
-        response.raise_for_status()
         logger.info(
             "Subscription %s notification URL has been updated", subscription_id
         )
