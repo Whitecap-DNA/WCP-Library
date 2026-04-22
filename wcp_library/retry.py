@@ -19,6 +19,10 @@ Four public policies:
 import logging
 import random
 
+import oracledb
+import psycopg
+from tenacity import retry_if_exception, stop_after_attempt
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,3 +77,59 @@ def _before_sleep_log(retry_state) -> None:
         type(exc).__name__,
         exc,
     )
+
+
+def _make_sql_retry(
+    catchable: tuple[type, ...],
+    connection_loss_codes: frozenset[str],
+    transient_codes: frozenset[str],
+    name: str,
+) -> dict:
+    """Build tenacity kwargs for tiered SQL retry.
+
+    * Connection-loss codes: fixed 300s wait (tolerate DB maintenance).
+    * Transient codes: exp backoff + jitter (deadlocks / lock-busy
+      resolve in milliseconds to seconds).
+    """
+    retriable_codes = connection_loss_codes | transient_codes
+
+    def _should_retry(exc: BaseException) -> bool:
+        if not isinstance(exc, catchable):
+            return False
+        return _extract_full_code(exc) in retriable_codes
+
+    def _wait(retry_state) -> float:
+        code = _extract_full_code(retry_state.outcome.exception())
+        if code in connection_loss_codes:
+            return 300.0
+        return min(2 ** (retry_state.attempt_number - 1), 30) + random.uniform(0, 3)
+
+    def _before_sleep(retry_state) -> None:
+        code = _extract_full_code(retry_state.outcome.exception())
+        logger.info(
+            "%s retry %d: code=%s",
+            name, retry_state.attempt_number, code,
+        )
+
+    return dict(
+        retry=retry_if_exception(_should_retry),
+        wait=_wait,
+        stop=stop_after_attempt(50),
+        before_sleep=_before_sleep,
+        reraise=True,
+    )
+
+
+postgres_retry_kwargs = _make_sql_retry(
+    catchable=(psycopg.OperationalError, psycopg.DatabaseError),
+    connection_loss_codes=_POSTGRES_CONNECTION_LOSS,
+    transient_codes=_POSTGRES_TRANSIENT,
+    name="postgres",
+)
+
+oracle_retry_kwargs = _make_sql_retry(
+    catchable=(oracledb.OperationalError, oracledb.DatabaseError),
+    connection_loss_codes=_ORACLE_CONNECTION_LOSS,
+    transient_codes=_ORACLE_TRANSIENT,
+    name="oracle",
+)

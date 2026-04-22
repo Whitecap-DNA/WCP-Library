@@ -25,3 +25,81 @@ class TestExtractFullCode:
     def test_returns_none_when_error_obj_has_no_full_code(self):
         err_obj = object()  # no full_code attr
         assert _extract_full_code(Exception(err_obj)) is None
+
+
+import psycopg
+import oracledb
+
+from wcp_library.retry import (
+    postgres_retry_kwargs,
+    oracle_retry_kwargs,
+    POSTGRES_RETRY_CODES,
+    ORACLE_RETRY_CODES,
+)
+
+
+def _mk_error(driver_exc_cls, full_code: str):
+    obj = MagicMock()
+    obj.full_code = full_code
+    obj.message = "simulated"
+    return driver_exc_cls(obj)
+
+
+class TestPostgresRetryStrategy:
+    def test_kwargs_are_complete(self):
+        for key in ("retry", "wait", "stop", "before_sleep", "reraise"):
+            assert key in postgres_retry_kwargs, key
+        assert postgres_retry_kwargs["reraise"] is True
+
+    def test_connection_loss_waits_300_seconds(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(psycopg.OperationalError, "08001")
+        retry_state.attempt_number = 1
+        wait = postgres_retry_kwargs["wait"](retry_state)
+        assert wait == 300.0
+
+    def test_transient_conflict_waits_sub_minute(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(psycopg.OperationalError, "40P01")
+        retry_state.attempt_number = 1
+        wait = postgres_retry_kwargs["wait"](retry_state)
+        # Exp backoff at attempt 1 = 2^0 = 1 + up to 3s jitter
+        assert 1.0 <= wait <= 4.0
+
+    def test_retry_predicate_matches_retriable_codes(self):
+        for code in POSTGRES_RETRY_CODES:
+            retry_state = MagicMock()
+            retry_state.outcome.exception.return_value = _mk_error(psycopg.OperationalError, code)
+            assert postgres_retry_kwargs["retry"](retry_state), code
+
+    def test_retry_predicate_rejects_non_retriable_code(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(psycopg.OperationalError, "99999")
+        assert not postgres_retry_kwargs["retry"](retry_state)
+
+    def test_retry_predicate_rejects_wrong_exception_type(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = ValueError("not a db error")
+        assert not postgres_retry_kwargs["retry"](retry_state)
+
+
+class TestOracleRetryStrategy:
+    def test_connection_loss_waits_300_seconds(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, "ORA-01033")
+        retry_state.attempt_number = 1
+        wait = oracle_retry_kwargs["wait"](retry_state)
+        assert wait == 300.0
+
+    def test_transient_exp_backoff(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, "ORA-08103")
+        retry_state.attempt_number = 1
+        wait = oracle_retry_kwargs["wait"](retry_state)
+        assert 1.0 <= wait <= 4.0
+
+    def test_all_retry_codes_match(self):
+        for code in ORACLE_RETRY_CODES:
+            retry_state = MagicMock()
+            retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, code)
+            assert oracle_retry_kwargs["retry"](retry_state), code
