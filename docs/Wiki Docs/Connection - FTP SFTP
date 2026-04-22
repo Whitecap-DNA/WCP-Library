@@ -4,7 +4,15 @@ FTP is a connection manager FTP connections used at Whitecap.
 
 This class uses [ftputil](https://ftputil.sschwarzer.net/) as it's backbone.
 
-It's initiated by passing along the host and optionally a port number (default is 21 is none is supplied), then calling login with the username and password.
+It's initiated by passing along the host and optionally a port number (default is 21 if none is supplied), then calling login with the username and password.
+
+#### Constructor
+
+`FTP(host: str | None = None, port: int = 21, password_vault_dict: dict | None = None)`
+
+- `host`: The FTP server hostname.
+- `port`: The FTP server port (default `21`).
+- `password_vault_dict`: Optional credential dictionary retrieved from the credentials manager. If provided, `host`, `port`, username, and password are taken from the dict and the connection is opened immediately.
 
 ```
 from wcp_library.ftp.ftp import FTP
@@ -54,7 +62,7 @@ Download all files, or files matching a specific regex pattern.
 
 ```
 # Download all CSV files in current working directory.
-FTP_connection.download(local_dir=Path("./download_folder", regex_pattern="*.csv"))
+FTP_connection.download_files(local_dir=Path("./download_folder"), regex_pattern="*.csv")
 ```
 
 ### list_files
@@ -113,7 +121,17 @@ SFTP is a connection manager SFTP connections used at Whitecap.
 
 This class uses [paramiko](https://www.paramiko.org/) as it's backbone.
 
-It's initiated by passing along the host and optionally a port number (default is 22 is none is supplied), then calling login with the username and password.
+It's initiated by passing along the host and optionally a port number (default is 22 if none is supplied), then calling login with the username and password.
+
+(Note: the current source default is `21` — a known bug; pass `port=22` explicitly until it's fixed.)
+
+#### Constructor
+
+`SFTP(host: str | None = None, port: int = 22, password_vault_dict: dict | None = None)`
+
+- `host`: The SFTP server hostname.
+- `port`: The SFTP server port (default `22`).
+- `password_vault_dict`: Optional credential dictionary retrieved from the credentials manager. If provided, `host`, `port`, username, and password are taken from the dict and the connection is opened immediately.
 
 ```
 from wcp_library.ftp.sftp import SFTP
@@ -163,7 +181,7 @@ Download all files, or files matching a specific regex pattern.
 
 ```
 # Download all CSV files in current working directory.
-SFTP_connection.download(local_dir=Path("./download_folder", regex_pattern="*.csv"))
+SFTP_connection.download_files(local_dir=Path("./download_folder"), regex_pattern="*.csv")
 ```
 
 ### list_files

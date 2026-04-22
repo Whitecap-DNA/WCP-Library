@@ -13,7 +13,7 @@ Optionally, you can pass it the following keyword arguments:
 ***
 
 
-Every method besides set_user has a retry wrapper.
+The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
 
 The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
 
@@ -55,9 +55,9 @@ Postgres_Connection.set_user(credentials)
 
 ### execute
 
-`def execute(self, query: str) -> None:`
+`def execute(self, query: SQL | Composed | str) -> int:`
 
-Executes the parameter query.
+Executes the parameter query. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 ```
 PostgresConnection.execute(query='Test_Query_With_No_Return')
@@ -65,9 +65,9 @@ PostgresConnection.execute(query='Test_Query_With_No_Return')
 
 ### safe_execute
 
-`def safe_execute(self, query: str, packed_values: dict) -> None:`
+`def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> int:`
 
-Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection.
+Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 This is primarily a method focused for use on external facing programs.
 
@@ -75,14 +75,14 @@ This is primarily a method focused for use on external facing programs.
 query = """DELETE FROM TEST WHERE test_col=:test"""
 values = {test: 1}
 
-PostgresConnection.execute(query=query, packed_values=values)
+PostgresConnection.safe_execute(query=query, packed_values=values)
 ```
 
 ### execute_multiple
 
-`def execute_multiple(self, queries: list[list[str, dict]]) -> None:`
+`def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> int:`
 
-This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility.
+This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility. Returns the summed driver-reported rowcount across all statements (0 for DDL or statements with no rowcount).
 
 ```
 query_1 = """DELETE FROM TEST WHERE test_col=:test"""
@@ -98,9 +98,9 @@ PostgresConnection.execute_multiple(queries=queries)
 
 ### execute_many
 
-`async def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> None:`
+`def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> int:`
 
-Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking.
+Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 More information about ExecuteMany (the method behind this method) is:
 
@@ -114,10 +114,10 @@ data_df = pd.DataFrame(data)
 
 ...
 
-export_dict = dfObj.to_dict('records')
+export_dict = df.to_dict('records')
 query = """INSERT INTO test_table (col_1, col_2) VALUES (:col_1, :col_2)"""
 
-PostgresConnection.execute_many(query=query, packed_data=export_dict)
+PostgresConnection.execute_many(query=query, dictionary=export_dict)
 ```
 
 ### fetch_data
@@ -133,7 +133,7 @@ result = PostgresConnection.fetch_data(query)
 
 ### remove_matching_data
 
-`def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:`
+`def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list[str]) -> int:`
 
 This function removes data from the table that matches the column entries in the DataFrame.
 
@@ -149,12 +149,12 @@ data_df = pd.DataFrame(data)
 
 ...
 
-PostgresConnection.remove_matching_data(dfObj=data_df, outputTableName="test_table", match_cols=['col_1'])
+PostgresConnection.remove_matching_data(df=data_df, table_name="test_table", match_cols=['col_1'])
 ```
 
 ### export_df_to_warehouse
 
-`def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:`
+`def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
 "export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connections#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database.
 
@@ -170,7 +170,7 @@ data_df = pd.DataFrame(data)
 
 ...
 
-PostgresConnection.export_df_to_warehouse(dfObj=data_df, outputTableName="test_table", columns=data_df.columns, remove_nan=True)
+PostgresConnection.export_df_to_warehouse(df=data_df, table_name="test_table", columns=data_df.columns, remove_nan=True)
 ```
 
 ### upsert_df_to_warehouse
@@ -196,22 +196,37 @@ PostgresConnection.upsert_df_to_warehouse(df=data_df, table_name="test_table", c
 
 ### truncate_table
 
-`def truncate_table(self, tableName: str) -> None:`
+`def truncate_table(self, table_name: str) -> None:`
 
 Simple method to truncate a table. Accepts a table name as a parameter.
 
 ```
-PostgresConnection.truncate_table(tableName="test_table")
+PostgresConnection.truncate_table(table_name="test_table")
 ```
 
 ### empty_table
 
-`def empty_table(self, tableName: str) -> None:`
+`def empty_table(self, table_name: str) -> None:`
 
 Simple method to empty a table. Accepts a table name as a parameter.
 
 ```
-PostgresConnection.empty_table(tableName="test_table")
+PostgresConnection.empty_table(table_name="test_table")
+```
+
+### close_connection
+
+`def close_connection(self) -> None:`
+
+Close the pool (if pooled) or the single connection. Also runs on context-manager exit when using `with PostgresConnection() as conn:` / `async with AsyncPostgresConnection() as conn:`.
+
+`PostgresConnection` is also usable as a context manager:
+
+```
+with PostgresConnection() as conn:
+    conn.set_user(credentials)
+    conn.execute(query)
+# conn.close_connection() called automatically on exit.
 ```
 
 ### commit
@@ -264,18 +279,20 @@ Nested transactions are supported via psycopg3's native `SAVEPOINT` mechanism.
 
 ### retry_transaction
 
-`def retry_transaction(self, fn: Callable[[Transaction], T]) -> T:`
+`def retry_transaction(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:`
 
 Run `fn(tx)` inside a transaction with retry applied at the transaction boundary. Uses the same retry policy as the per-method decorator (retriable Postgres errors → 5-minute wait → fresh transaction), but the entire block rolls back and re-enters atomically. Non-retriable errors propagate immediately.
+
+Extra positional and keyword arguments are forwarded to `fn` after the transaction handle: `conn.retry_transaction(fn, arg1, key=value)` calls `fn(tx, arg1, key=value)`.
 
 Use for DDL blocks, truncate+insert replacements, or reconciliation deletes where the whole block should retry rather than a single statement.
 
 ```
-def rebuild_table(tx):
-    tx.truncate_table("reporting_snapshot")
-    tx.upsert_df_to_warehouse(df, "reporting_snapshot", cols, match_cols)
+def rebuild_table(tx, target_table, df, cols, match_cols):
+    tx.truncate_table(target_table)
+    tx.upsert_df_to_warehouse(df, target_table, cols, match_cols)
 
-Postgres_Connection.retry_transaction(rebuild_table)
+Postgres_Connection.retry_transaction(rebuild_table, "reporting_snapshot", df, cols, match_cols)
 ```
 
 # AsyncPostgresConnection
@@ -293,7 +310,7 @@ Optionally, you can pass it the following keyword arguments:
 ***
 
 
-Every method besides set_user has a retry wrapper.
+The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
 
 The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
 
@@ -328,9 +345,9 @@ await PostgresConnection.set_user(credentials)
 
 ### execute
 
-`async def execute(self, query: str) -> None:`
+`async def execute(self, query: SQL | Composed | str) -> int:`
 
-Executes the parameter query.
+Executes the parameter query. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 ```
 await PostgresConnection.execute(query='Test_Query_With_No_Return')
@@ -338,9 +355,9 @@ await PostgresConnection.execute(query='Test_Query_With_No_Return')
 
 ### safe_execute
 
-`async def safe_execute(self, query: str, packed_values: dict) -> None:`
+`async def safe_execute(self, query: SQL | Composed | str, packed_values: dict) -> int:`
 
-Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection.
+Identical to execute, however uses a parameterized approach to avoid possibilities of SQL injection. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 This is primarily a method focused for use on external facing programs.
 
@@ -348,14 +365,14 @@ This is primarily a method focused for use on external facing programs.
 query = """DELETE FROM TEST WHERE test_col=:test"""
 values = {test: 1}
 
-await PostgresConnection.execute(query=query, packed_values=values)
+await PostgresConnection.safe_execute(query=query, packed_values=values)
 ```
 
 ### execute_multiple
 
-`async def execute_multiple(self, queries: list[list[str, dict]]) -> None:`
+`async def execute_multiple(self, queries: list[tuple[SQL | Composed | str, dict]]) -> int:`
 
-This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility.
+This executes multiple queries in succession. The inclusion of the packed_values dict is optional, but should be used in situations where SQL injection is a possibility. Returns the summed driver-reported rowcount across all statements (0 for DDL or statements with no rowcount).
 
 ```
 query_1 = """DELETE FROM TEST WHERE test_col=:test"""
@@ -371,9 +388,9 @@ await PostgresConnection.execute_multiple(queries=queries)
 
 ### execute_many
 
-`async def execute_multiple(self, queries: list[list[str, dict]]) -> None:`
+`async def execute_many(self, query: SQL | Composed | str, dictionary: list[dict] | list[tuple]) -> int:`
 
-Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking.
+Like execute multiple, this runs multiple queries, but instead of in succession, it does so without blocking. Returns the driver-reported rowcount (0 for DDL or statements with no rowcount).
 
 More information about ExecuteMany (the method behind this method) is:
 
@@ -387,10 +404,10 @@ data_df = pd.DataFrame(data)
 
 ...
 
-export_dict = dfObj.to_dict('records')
+export_dict = df.to_dict('records')
 query = """INSERT INTO test_table (col_1, col_2) VALUES (:col_1, :col_2)"""
 
-await PostgresConnection.execute_many(query=query, packed_data=export_dict)
+await PostgresConnection.execute_many(query=query, dictionary=export_dict)
 ```
 
 ### fetch_data
@@ -406,7 +423,7 @@ result = await PostgresConnection.fetch_data(query)
 
 ### remove_matching_data
 
-`async def remove_matching_data(self, dfObj: pd.DataFrame, outputTableName: str, match_cols: list) -> None:`
+`async def remove_matching_data(self, df: pd.DataFrame, table_name: str, match_cols: list[str]) -> int:`
 
 This function removes data from the table that matches the column entries in the DataFrame.
 
@@ -422,12 +439,12 @@ data_df = pd.DataFrame(data)
 
 ...
 
-await PostgresConnection.remove_matching_data(dfObj=data_df, outputTableName="test_table", match_cols=['col_1'])
+await PostgresConnection.remove_matching_data(df=data_df, table_name="test_table", match_cols=['col_1'])
 ```
 
 ### export_df_to_warehouse
 
-`async def export_df_to_warehouse(self, dfObj: pd.DataFrame, outputTableName: str, columns: list, remove_nan=False) -> None:`
+`async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
 "export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connection#execute_many-1) that does the work for you, to export a pandas dataframe to the Postgres database.
 
@@ -443,7 +460,7 @@ data_df = pd.DataFrame(data)
 
 ...
 
-await PostgresConnection.export_df_to_warehouse(dfObj=data_df, outputTableName="test_table", columns=data_df.columns, remove_nan=True)
+await PostgresConnection.export_df_to_warehouse(df=data_df, table_name="test_table", columns=data_df.columns, remove_nan=True)
 ```
 
 ### upsert_df_to_warehouse
@@ -469,22 +486,37 @@ await PostgresConnection.upsert_df_to_warehouse(df=data_df, table_name="test_tab
 
 ### truncate_table
 
-`async def truncate_table(self, tableName: str) -> None:`
+`async def truncate_table(self, table_name: str) -> None:`
 
 Simple method to truncate a table. Accepts a table name as a parameter.
 
 ```
-await PostgresConnection.truncate_table(tableName="test_table")
+await PostgresConnection.truncate_table(table_name="test_table")
 ```
 
 ### empty_table
 
-`async def empty_table(self, tableName: str) -> None:`
+`async def empty_table(self, table_name: str) -> None:`
 
 Simple method to empty a table. Accepts a table name as a parameter.
 
 ```
-await PostgresConnection.empty_table(tableName="test_table")
+await PostgresConnection.empty_table(table_name="test_table")
+```
+
+### close_connection
+
+`async def close_connection(self) -> None:`
+
+Close the pool (if pooled) or the single connection. Also runs on context-manager exit when using `with PostgresConnection() as conn:` / `async with AsyncPostgresConnection() as conn:`.
+
+`AsyncPostgresConnection` is also usable as a context manager:
+
+```
+async with AsyncPostgresConnection() as conn:
+    await conn.set_user(credentials)
+    await conn.execute(query)
+# conn.close_connection() called automatically on exit.
 ```
 
 ### commit
@@ -537,18 +569,20 @@ Nested transactions are supported via psycopg3's native `SAVEPOINT` mechanism.
 
 ### retry_transaction
 
-`async def retry_transaction(self, fn: Callable[[AsyncTransaction], Awaitable[T]]) -> T:`
+`async def retry_transaction(self, fn: Callable[..., Awaitable[_T]], *args: Any, **kwargs: Any) -> _T:`
 
 Run `fn(tx)` inside a transaction with retry applied at the transaction boundary. Uses the same retry policy as the per-method decorator (retriable Postgres errors → 5-minute wait → fresh transaction), but the entire block rolls back and re-enters atomically. Non-retriable errors propagate immediately.
+
+Extra positional and keyword arguments are forwarded to `fn` after the transaction handle: `conn.retry_transaction(fn, arg1, key=value)` calls `fn(tx, arg1, key=value)`.
 
 Use for DDL blocks, truncate+insert replacements, or reconciliation deletes where the whole block should retry rather than a single statement.
 
 ```
-async def rebuild_table(tx):
-    await tx.truncate_table("reporting_snapshot")
-    await tx.upsert_df_to_warehouse(df, "reporting_snapshot", cols, match_cols)
+async def rebuild_table(tx, target_table, df, cols, match_cols):
+    await tx.truncate_table(target_table)
+    await tx.upsert_df_to_warehouse(df, target_table, cols, match_cols)
 
-await PostgresConnection.retry_transaction(rebuild_table)
+await PostgresConnection.retry_transaction(rebuild_table, "reporting_snapshot", df, cols, match_cols)
 ```
 
 # Transaction / AsyncTransaction

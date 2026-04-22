@@ -11,7 +11,6 @@ This module defines the foundational configuration and authentication for the Mi
 - OAuth2 client credentials flow for app-only authentication.
 - Centralized `Authorization` header generation for all Graph API calls.
 - Configurable request timeout and subscription renewal threshold.
-- Subscription store path for persistent subscription tracking.
 
 ## SharePoint
 
@@ -280,7 +279,7 @@ get_file_content(headers, site_id, "/Shared Documents/My Folder/file.txt")
 
 `get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes | None`
 
-Retrieve file content when you already have the drive ID and item ID (e.g. from a change notification or an earlier `list_folder` / `get_file_metadata` call). Bypasses path resolution.
+Retrieve file content when the drive ID and item ID are known. Bypasses path resolution.
 
 ```python
 get_file_content_by_id(headers, drive_id, item_id)

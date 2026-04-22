@@ -17,7 +17,7 @@ Gets the current time.
 Optionally, you can specify a time zone from [here](https://gist.github.com/heyalexej/8bf688fd67d7199be4a1682b3eec7568).
 
 ```
-from wcap_library.time import get_current_time
+from wcp_library.time import get_current_time
 
 current_time_naive = get_current_time()
 current_time_aware = get_current_time(aware=True)
@@ -30,10 +30,10 @@ current_time_aware = get_current_time(aware=True)
 Converts a datetime to the local (or otherwise specified) time zone.
 
 ```
-from wcap_library.time import convert_tz
+from wcp_library.time import convert_tz
 
 utc_time = <some UTC datetime>
-local_time = convert(utc_time, "UTC")
+local_time = convert_tz(utc_time, "UTC")
 ```
 
 ### get_utc_timestamp
@@ -45,7 +45,7 @@ Converts the provided datetime (with optionally specified original time zone) to
 ```
 from datetime import datetime
 
-from wcap_library.time import get_utc_timestamp
+from wcp_library.time import get_utc_timestamp
 
 datetime_example = datetime.now()
 utc_timestamp = get_utc_timestamp(datetime_example)
@@ -60,7 +60,7 @@ Converts the provided datetime (with optionally specified original time zone) to
 ```
 from datetime import datetime
 
-from wcap_library.time import get_local_timestamp
+from wcp_library.time import get_local_timestamp
 
 datetime_example = datetime.now()
 local_timestamp = get_local_timestamp(datetime_example)

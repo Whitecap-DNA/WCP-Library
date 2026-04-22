@@ -55,14 +55,14 @@ Initiates a job to run on the informatica instance, returns the job's jobId.
 job_id = informatica_session.run_job(mtt_task_id, "MTT")
 ```
 
-### wait_until_job_finished
+### wait_until_job_finish
 
 `def wait_until_job_finish(self, run_id: str) -> datetime:`
 
 Waits for the informatica job to finish running, and returns it's end time.
 
 ```
-job_end_time = informatica_session.wait_until_job_finished(job_id)
+job_end_time = informatica_session.wait_until_job_finish(job_id)
 ```
 
 ### get_connection_details
@@ -98,5 +98,13 @@ Returns the details of the specified mapping inside the informatica instance.
 The API endpoint documentation with expected return values is [here](https://docs.informatica.com/integration-cloud/b2b-gateway/current-version/rest-api-reference/data-integration-rest-api/mappings.html).
 
 ```
-all_informatica_connections = informatica_session.get_all_mapping_details()
+mapping_details = informatica_session.get_mapping_details(mapping_id)
 ```
+
+## Exceptions
+
+### InformaticaError
+
+`class InformaticaError(Exception)`
+
+Raised whenever an Informatica API call fails (non-200 response, login failure, or job failure state). All methods on `InformaticaSession` raise this exception on error rather than returning ``None``/``False``.

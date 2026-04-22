@@ -26,7 +26,7 @@ This module provides a comprehensive suite of helper classes and methods for int
 
 - Error screenshots are automatically captured on exceptions and uploaded to SharePoint (if configured) or saved to a local fallback directory.
 - All exceptions are logged with contextual information to aid debugging.
-- Every function includes a `WebDriverWait` call to allow optional wait configurations.
+- Every function includes a `WebDriverWait` call to allow optional wait configurations. The one exception is `get_first_element`, which uses a manual polling loop instead of `WebDriverWait`.
 
 # Usage
 
@@ -89,6 +89,25 @@ To save execution screenshots to SharePoint in case of RPA error, add sharepoint
 * `app_id`
 * `app_secret`
 * `tenant_id`
+
+## SeleniumExceptions
+
+`BaseSelenium` (and, by alias, `Browser`) exposes a nested `SeleniumExceptions` class that bundles the Selenium exception hierarchy for convenient `except` clauses.
+
+- `SeleniumExceptions.ALL` is a `tuple[type, ...]` containing every `Exception` subclass defined in `selenium.common.exceptions` (discovered at import time via `inspect.getmembers`). Typical members include `WebDriverException`, `TimeoutException`, `NoSuchElementException`, `StaleElementReferenceException`, `ElementClickInterceptedException`, etc.
+
+Use it to catch any Selenium-originating error in one shot:
+
+```python
+from wcp_library.browser_automation.browser import Browser
+
+with Browser(Browser.Firefox, options) as driver:
+    try:
+        driver.press_button("#submit")
+    except Browser.SeleniumExceptions.ALL:
+        # handle any Selenium error
+        ...
+```
 
 ### locator
 
@@ -194,7 +213,7 @@ driver.close_window(window_handle=window_handle)
 
 ### take_screenshot
 
-`take_screenshot(self, file_path: str) -> None`
+`take_screenshot(self, file_path: Path) -> None`
 
 Take a screenshot of the current page and save it to the specified file path.
 
@@ -334,7 +353,7 @@ driver.set_select_option(option, element_value, select_type="visible_text", loca
 
 ### web_page_contains
 
-`web_page_contains(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+`web_page_contains(self, element_value: str, locator: str | None = None, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | bool`
 
 Check whether an element is present on the page. Returns the element if found, otherwise `False`.
 
@@ -354,7 +373,7 @@ driver.wait_for_element(element_value, locator=locator, expected_condition=expec
 
 ### text_is_present
 
-`text_is_present(self, text: str, element_value: str, locator: str | None = None, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+`text_is_present(self, text: str, element_value: str, locator: str | None = None, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | bool`
 
 Check whether the specified text is present within an element. Returns the element if found, otherwise `False`. `text_location` can be specified:
 
@@ -454,7 +473,7 @@ driver.set_select_option_we(option, web_element, select_type="visible_text")
 
 ### web_page_contains_we
 
-`web_page_contains_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+`web_page_contains_we(self, web_element: WebElement, expected_condition: str | None = None, wait_time: float | None = 0) -> WebElement | bool`
 
 Check if a WebElement is present and meets a condition. Returns the element if found, otherwise `False`.
 
@@ -464,7 +483,7 @@ driver.web_page_contains_we(web_element, expected_condition=expected_condition, 
 
 ### text_is_present_we
 
-`text_is_present_we(self, web_element: WebElement, text: str, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | False`
+`text_is_present_we(self, web_element: WebElement, text: str, text_location: str | None = None, wait_time: float | None = 0) -> WebElement | bool`
 
 Check whether the specified text is present within a WebElement. Returns the element if found, otherwise `False`. `text_location` can be specified:
 
