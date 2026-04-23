@@ -80,15 +80,13 @@ class TestGetSiteMetadata:
             )
             assert _called_headers(mock_req) == HEADERS
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch("wcp_library.graph.sharepoint._request") as mock_req:
             mock_req.side_effect = _http_error()
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.get_site_metadata(
                     HEADERS, "https://contoso.sharepoint.com/sites/x"
                 )
-                is None
-            )
 
 
 class TestGetDrives:
@@ -112,11 +110,12 @@ class TestGetDrives:
             sharepoint.get_drives(HEADERS, SITE_ID, page_size=100)
             assert "$top=100" in _called_url(mock_req)
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_drives(HEADERS, SITE_ID) is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_drives(HEADERS, SITE_ID)
 
 
 class TestGetDriveIdByName:
@@ -141,11 +140,12 @@ class TestGetDriveIdByName:
         ):
             assert sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Missing") is None
 
-    def test_returns_none_when_drives_fetch_fails(self):
+    def test_raises_when_drives_fetch_fails(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Anything") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Anything")
 
 
 # ======================= File (DriveItem) functions ======================= #
@@ -201,11 +201,12 @@ class TestListFolder:
             assert mock_req.call_count == 2
             assert mock_req.call_args_list[1][0][1] == "https://graph.microsoft.com/page2"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.list_folder(HEADERS, SITE_ID, "/folder") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.list_folder(HEADERS, SITE_ID, "/folder")
 
 
 class TestGetFileMetadata:
@@ -236,11 +237,12 @@ class TestGetFileMetadata:
                 f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/root:/a.txt"
             )
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_file_metadata(HEADERS, SITE_ID, "/x.txt") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_file_metadata(HEADERS, SITE_ID, "/x.txt")
 
 
 class TestGetFileContent:
@@ -257,11 +259,12 @@ class TestGetFileContent:
                 f"/sites/{SITE_ID}/drive/root:/Shared Documents/a.txt:/content"
             )
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_file_content(HEADERS, SITE_ID, "/x.txt") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_file_content(HEADERS, SITE_ID, "/x.txt")
 
 
 class TestGetFileContentById:
@@ -276,11 +279,12 @@ class TestGetFileContentById:
                 f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/items/{ITEM_ID}/content"
             )
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_file_content_by_id(HEADERS, DRIVE_ID, ITEM_ID) is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_file_content_by_id(HEADERS, DRIVE_ID, ITEM_ID)
 
 
 class TestUploadFile:
@@ -342,16 +346,14 @@ class TestUploadFile:
             )
             assert mock_req.call_args.kwargs["data"] == b"abc"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.upload_file(
                     HEADERS, SITE_ID, "/Docs", "a.txt", b"x"
                 )
-                is None
-            )
 
 
 class TestDownloadFile:
@@ -376,16 +378,14 @@ class TestDownloadFile:
             fake_output.write_bytes.assert_called_once_with(content)
             assert result is fake_output
 
-    def test_returns_none_on_request_exception(self, tmp_path):
+    def test_raises_on_request_exception(self, tmp_path):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.download_file(
                     HEADERS, SITE_ID, "/Docs/report.xlsx", tmp_path
                 )
-                is None
-            )
 
 
 class TestMoveFile:
@@ -439,13 +439,12 @@ class TestMoveFile:
             sent = mock_req.call_args.kwargs["json"]
             assert sent["parentReference"]["path"] == f"/drives/{DRIVE_ID}/root:/b"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
-                sharepoint.move_file(HEADERS, SITE_ID, "/a.txt", "/b") is None
-            )
+            with pytest.raises(requests.RequestException):
+                sharepoint.move_file(HEADERS, SITE_ID, "/a.txt", "/b")
 
 
 class TestRenameFile:
@@ -465,14 +464,14 @@ class TestRenameFile:
                 drive_id=None,
             )
 
-    def test_propagates_none_when_move_fails(self):
-        with patch("wcp_library.graph.sharepoint.move_file", return_value=None):
-            assert (
+    def test_propagates_exception_when_move_fails(self):
+        with patch(
+            "wcp_library.graph.sharepoint.move_file", side_effect=_http_error()
+        ):
+            with pytest.raises(requests.RequestException):
                 sharepoint.rename_file(
                     HEADERS, SITE_ID, "/Docs/old.txt", "new.txt"
                 )
-                is None
-            )
 
 
 class TestCopyFile:
@@ -505,30 +504,32 @@ class TestCopyFile:
             sent = mock_req.call_args.kwargs["json"]
             assert sent["name"] == "renamed.txt"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.copy_file(HEADERS, SITE_ID, "/a.txt", "/b") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.copy_file(HEADERS, SITE_ID, "/a.txt", "/b")
 
 
 class TestRemoveFile:
-    def test_returns_true_on_success(self):
+    def test_calls_delete_on_success(self):
         response = MagicMock()
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=response
         ) as mock_req:
-            assert sharepoint.remove_file(HEADERS, SITE_ID, "/a.txt") is True
+            assert sharepoint.remove_file(HEADERS, SITE_ID, "/a.txt") is None
             assert _called_method(mock_req) == "DELETE"
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:/a.txt"
             )
 
-    def test_returns_false_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.remove_file(HEADERS, SITE_ID, "/a.txt") is False
+            with pytest.raises(requests.RequestException):
+                sharepoint.remove_file(HEADERS, SITE_ID, "/a.txt")
 
 
 # ======================= List functions ======================= #
@@ -561,11 +562,12 @@ class TestGetLists:
             assert result == [{"id": "a"}, {"id": "b"}]
             assert mock_req.call_count == 2
 
-    def test_returns_empty_list_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_lists(HEADERS, SITE_ID) == []
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_lists(HEADERS, SITE_ID)
 
 
 class TestGetListMetadata:
@@ -580,11 +582,12 @@ class TestGetListMetadata:
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/lists/{LIST_ID}"
             )
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_list_metadata(HEADERS, SITE_ID, LIST_ID) is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_list_metadata(HEADERS, SITE_ID, LIST_ID)
 
 
 class TestCreateList:
@@ -614,30 +617,32 @@ class TestCreateList:
             sent = mock_req.call_args.kwargs["json"]
             assert sent["list"]["template"] == "documentLibrary"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.create_list(HEADERS, SITE_ID, "N") is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.create_list(HEADERS, SITE_ID, "N")
 
 
 class TestRemoveList:
-    def test_returns_true_on_success(self):
+    def test_calls_delete_on_success(self):
         response = MagicMock()
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=response
         ) as mock_req:
-            assert sharepoint.remove_list(HEADERS, SITE_ID, LIST_ID) is True
+            assert sharepoint.remove_list(HEADERS, SITE_ID, LIST_ID) is None
             assert _called_method(mock_req) == "DELETE"
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/lists/{LIST_ID}"
             )
 
-    def test_returns_false_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.remove_list(HEADERS, SITE_ID, LIST_ID) is False
+            with pytest.raises(requests.RequestException):
+                sharepoint.remove_list(HEADERS, SITE_ID, LIST_ID)
 
 
 class TestGetListItems:
@@ -677,11 +682,12 @@ class TestGetListItems:
             assert result == [{"id": "a"}, {"id": "b"}]
             assert mock_req.call_count == 2
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert sharepoint.get_list_items(HEADERS, SITE_ID, LIST_ID) is None
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_list_items(HEADERS, SITE_ID, LIST_ID)
 
 
 class TestGetListItemMetadata:
@@ -699,16 +705,14 @@ class TestGetListItemMetadata:
                 f"/lists/{LIST_ID}/items/{ITEM_ID}?expand=fields"
             )
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.get_list_item_metadata(
                     HEADERS, SITE_ID, LIST_ID, ITEM_ID
                 )
-                is None
-            )
 
 
 class TestCreateListItem:
@@ -727,14 +731,12 @@ class TestCreateListItem:
             assert mock_req.call_args.kwargs["json"] == {"fields": fields}
             assert _called_headers(mock_req)["Content-Type"] == "application/json"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.create_list_item(HEADERS, SITE_ID, LIST_ID, {"Title": "x"})
-                is None
-            )
 
 
 class TestUpdateListItem:
@@ -756,27 +758,25 @@ class TestUpdateListItem:
             assert mock_req.call_args.kwargs["json"] == fields
             assert _called_headers(mock_req)["Content-Type"] == "application/json"
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.update_list_item(
                     HEADERS, SITE_ID, LIST_ID, ITEM_ID, {"Status": "x"}
                 )
-                is None
-            )
 
 
 class TestRemoveListItem:
-    def test_returns_true_on_success(self):
+    def test_calls_delete_on_success(self):
         response = MagicMock()
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=response
         ) as mock_req:
             assert (
                 sharepoint.remove_list_item(HEADERS, SITE_ID, LIST_ID, ITEM_ID)
-                is True
+                is None
             )
             assert _called_method(mock_req) == "DELETE"
             assert _called_url(mock_req) == (
@@ -784,11 +784,9 @@ class TestRemoveListItem:
                 f"/lists/{LIST_ID}/items/{ITEM_ID}"
             )
 
-    def test_returns_false_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 sharepoint.remove_list_item(HEADERS, SITE_ID, LIST_ID, ITEM_ID)
-                is False
-            )

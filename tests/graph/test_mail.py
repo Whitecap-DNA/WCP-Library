@@ -67,11 +67,12 @@ class TestGetMailboxFolders:
                 "/parent-1/childFolders"
             )
 
-    def test_returns_empty_list_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
-            assert mail.get_mailbox_folders(HEADERS, MAILBOX) == []
+            with pytest.raises(requests.RequestException):
+                mail.get_mailbox_folders(HEADERS, MAILBOX)
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
@@ -115,11 +116,12 @@ class TestGetEmailMetadata:
             )
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
-            assert mail.get_email_metadata(HEADERS, MAILBOX, MESSAGE_ID) is None
+            with pytest.raises(requests.RequestException):
+                mail.get_email_metadata(HEADERS, MAILBOX, MESSAGE_ID)
 
 
 class TestGetEmails:
@@ -147,11 +149,12 @@ class TestGetEmails:
                 f"/mailFolders/{FOLDER_ID}/messages"
             )
 
-    def test_returns_empty_list_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
-            assert mail.get_emails(HEADERS, MAILBOX) == []
+            with pytest.raises(requests.RequestException):
+                mail.get_emails(HEADERS, MAILBOX)
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
@@ -203,11 +206,12 @@ class TestGetAttachments:
             assert result[0]["name_no_extension"] == ""
             assert result[0]["extension"] == ""
 
-    def test_returns_empty_list_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
-            assert mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID) == []
+            with pytest.raises(requests.RequestException):
+                mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
 
 
 class TestSaveAttachment:
