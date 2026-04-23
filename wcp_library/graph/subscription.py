@@ -78,6 +78,7 @@ def create_subscription(
     :param resource: The resource to subscribe to.
     :param change_type (str): The type of change to subscribe to.
     :param client_state (str): A client-defined string that is sent with each notification.
+    :raises requests.RequestException: If the HTTP request fails.
     """
     url = "https://graph.microsoft.com/v1.0/subscriptions"
 
@@ -91,39 +92,29 @@ def create_subscription(
         "expirationDateTime": expiration_datetime,
     }
 
-    try:
-        response = _request(
-            "POST",
-            url,
-            headers,
-            json=payload,
-        )
-        data = response.json()
-        logger.info("Subscription created with ID: %s", data.get("id"))
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
+    response = _request(
+        "POST",
+        url,
+        headers,
+        json=payload,
+    )
+    data = response.json()
+    logger.info("Subscription created with ID: %s", data.get("id"))
 
 
-def get_subscription(headers: dict, subscription_id: str) -> dict | None:
+def get_subscription(headers: dict, subscription_id: str) -> dict:
     """Retrieves a subscription by ID.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-get
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to retrieve.
-    :return: A dictionary containing the subscription details, or None if not found.
-    :rtype: dict | None
+    :return: A dictionary containing the subscription details.
+    :rtype: dict
+    :raises requests.RequestException: If the HTTP request fails.
     """
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
-    try:
-        response = _request("GET", url, headers)
-        return response.json()
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return None
+    response = _request("GET", url, headers)
+    return response.json()
 
 
 def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
@@ -132,6 +123,7 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to renew.
+    :raises requests.RequestException: If the HTTP request fails.
     """
     subscription = get_subscription(headers, subscription_id)
     resource_type = _get_resource_type(subscription.get("resource", ""))
@@ -140,19 +132,14 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> None:
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"expirationDateTime": expiration_datetime}
 
-    try:
-        response = _request(
-            "PATCH", url, headers, json=body
-        )
-        logger.info(
-            "Subscription %s has been renewed until %s",
-            subscription_id,
-            expiration_datetime,
-        )
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
+    response = _request(
+        "PATCH", url, headers, json=body
+    )
+    logger.info(
+        "Subscription %s has been renewed until %s",
+        subscription_id,
+        expiration_datetime,
+    )
 
 
 def _calculate_expiration_datetime(resource_type: str) -> str:
@@ -210,23 +197,18 @@ def _get_resource_type(resource: str) -> str:
     return "default"
 
 
-def list_subscriptions(headers: dict) -> list[dict] | None:
+def list_subscriptions(headers: dict) -> list[dict]:
     """List all active subscriptions for the authenticated client.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-list
 
     :param headers: The headers containing the Authorization token.
     :return: A list of dictionaries containing the subscriptions.
     :rtype: list[dict]
+    :raises requests.RequestException: If the HTTP request fails.
     """
     url = "https://graph.microsoft.com/v1.0/subscriptions"
-    try:
-        response = _request("GET", url, headers)
-        return response.json().get("value", [])
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return None
+    response = _request("GET", url, headers)
+    return response.json().get("value", [])
 
 
 def delete_subscription(headers: dict, subscription_id: str) -> None:
@@ -234,15 +216,11 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to delete.
+    :raises requests.RequestException: If the HTTP request fails.
     """
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
-    try:
-        response = _request("DELETE", url, headers)
-        logger.info("Subscription %s has been deleted", subscription_id)
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
+    response = _request("DELETE", url, headers)
+    logger.info("Subscription %s has been deleted", subscription_id)
 
 
 def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
@@ -252,18 +230,14 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
 
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to reauthorize.
+    :raises requests.RequestException: If the HTTP request fails.
     """
 
     url = (
         f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}/reauthorize"
     )
-    try:
-        response = _request("POST", url, headers)
-        logger.info("Subscription %s has been reauthorized", subscription_id)
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
+    response = _request("POST", url, headers)
+    logger.info("Subscription %s has been reauthorized", subscription_id)
 
 
 def recreate_subscription(headers: dict, subscription_id: str) -> None:
@@ -293,18 +267,14 @@ def update_notification_url(
     :param headers: The headers containing the Authorization token.
     :param subscription_id (str): The ID of the subscription to update.
     :param new_notification_url (str): The new notification URL to set.
+    :raises requests.RequestException: If the HTTP request fails.
     """
     url = f"https://graph.microsoft.com/v1.0/subscriptions/{subscription_id}"
     body = {"notificationUrl": new_notification_url}
 
-    try:
-        response = _request(
-            "PATCH", url, headers, json=body
-        )
-        logger.info(
-            "Subscription %s notification URL has been updated", subscription_id
-        )
-    except requests.RequestException as e:
-        logger.error("Error: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
+    response = _request(
+        "PATCH", url, headers, json=body
+    )
+    logger.info(
+        "Subscription %s notification URL has been updated", subscription_id
+    )

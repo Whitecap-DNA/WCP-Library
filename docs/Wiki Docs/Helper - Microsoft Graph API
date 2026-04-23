@@ -63,7 +63,11 @@ Every Graph HTTP call (across sharepoint, mail, subscription) goes through a sha
 - **HTTP 503 / 504** — exponential backoff up to 60 seconds.
 - **Network errors** (`requests.ConnectionError`, `requests.Timeout`) — exponential backoff up to 60 seconds.
 
-Up to 5 attempts total. Retries are transparent to callers: the public helpers still return `None` (or the documented value) on non-retryable failure; only retryable errors loop internally. Policy defined in `wcp_library.retry.graph_retry_kwargs`.
+Up to 5 attempts total. When tenacity exhausts the budget, `_GraphRetriable` (a `requests.RequestException` subclass) propagates out of the public helper. Non-retryable HTTP errors (4xx, non-retry 5xx) also propagate as `requests.HTTPError`.
+
+**Error contract (1.13+):** public helpers **raise** on final failure rather than returning `None`/`[]`/`False`. This matches the rest of the library (SQL primitives, browser automation) and ensures silent misconfigurations (bad auth, persistent 503s, network down) surface loudly rather than masquerading as empty data. Callers who truly want best-effort semantics can wrap individual calls in their own `try/except requests.RequestException`.
+
+Policy defined in `wcp_library.retry.graph_retry_kwargs`.
 
 # Usage
 
@@ -238,7 +242,7 @@ get_site_metadata(headers, "https://contoso.sharepoint.com/sites/MySite")
 
 `get_drives(headers: dict, site_id: str, *, page_size: int | None = None) -> list[dict] | None`
 
-List document libraries (drives) on a SharePoint site. Follows `@odata.nextLink` across all pages. Returns `None` on error. An optional `page_size` tunes the Graph `$top` value on the initial request.
+List document libraries (drives) on a SharePoint site. Follows `@odata.nextLink` across all pages. Raises `requests.RequestException` on HTTP errors or exhausted retries. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
 ```python
 drives = get_drives(headers, site_id)
@@ -327,7 +331,7 @@ upload_file(headers, site_id, "/2026/04/20", "invoice.pdf", file_bytes, drive_id
 
 `download_file(headers: dict, site_id: str, file_path: str, download_folder: Path, *, drive_id: str | None = None) -> Path | None`
 
-Download a file from a SharePoint site into `download_folder`. Returns the `Path` of the downloaded file on success, or `None` on failure.
+Download a file from a SharePoint site into `download_folder`. Returns the `Path` of the downloaded file on success. Raises `requests.RequestException` on HTTP errors or exhausted retries.
 
 ```python
 from pathlib import Path
@@ -420,7 +424,7 @@ remove_list(headers, site_id, list_id)
 
 `get_list_items(headers: dict, site_id: str, list_id: str, odata_filter: str | None = None, *, page_size: int | None = None) -> list[dict] | None`
 
-Retrieve items from a SharePoint list with optional OData filtering. Follows `@odata.nextLink` across all pages. Returns `None` on error. An optional `page_size` tunes the Graph `$top` value on the initial request.
+Retrieve items from a SharePoint list with optional OData filtering. Follows `@odata.nextLink` across all pages. Raises `requests.RequestException` on HTTP errors or exhausted retries. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
 ```python
 get_list_items(headers, site_id, list_id, odata_filter="fields/Status eq 'Active'")

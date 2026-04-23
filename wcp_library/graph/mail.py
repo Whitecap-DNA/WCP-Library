@@ -57,15 +57,9 @@ def get_mailbox_folders(
     if parent_folder_id:
         url += f"/{parent_folder_id}/childFolders"
 
-    try:
-        response = _request("GET", url, headers)
-        data = response.json()
-        return data.get("value", [])
-    except requests.RequestException as e:
-        logger.error("Error retrieving mailbox folders: %s", e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return []
+    response = _request("GET", url, headers)
+    data = response.json()
+    return data.get("value", [])
 
 
 # ----------------------------------- Email Functions ----------------------------------- #
@@ -98,16 +92,8 @@ def get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | N
     :return: The email details as a JSON object.
     """
     url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}"
-    try:
-        response = _request("GET", url, headers)
-        return response.json()
-    except requests.RequestException as e:
-        logger.error(
-            "Error retrieving email metadata for message %s: %s", message_id, e
-        )
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return None
+    response = _request("GET", url, headers)
+    return response.json()
 
 
 def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> list[dict]:
@@ -124,15 +110,9 @@ def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> lis
         url += f"/mailFolders/{folder_id}"
     url += "/messages"
 
-    try:
-        response = _request("GET", url, headers)
-        data = response.json()
-        return data.get("value", [])
-    except requests.RequestException as e:
-        logger.error("Error retrieving emails from mailbox %s: %s", mailbox, e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return []
+    response = _request("GET", url, headers)
+    data = response.json()
+    return data.get("value", [])
 
 
 def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
@@ -144,22 +124,16 @@ def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
     :return: A list of dictionaries containing the attachment details.
     """
     url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}/attachments"
-    try:
-        resp = _request("GET", url, headers)
-        data = resp.json()
-        return [
-            {
-                **att,
-                "name_no_extension": os.path.splitext(att.get("name", ""))[0],
-                "extension": os.path.splitext(att.get("name", ""))[1].lstrip("."),
-            }
-            for att in data.get("value", [])
-        ]
-    except requests.RequestException as e:
-        logger.error("Error retrieving attachments for message %s: %s", message_id, e)
-        if hasattr(e, "response") and e.response is not None:
-            logger.debug("Response text: %s", e.response.text)
-        return []
+    resp = _request("GET", url, headers)
+    data = resp.json()
+    return [
+        {
+            **att,
+            "name_no_extension": os.path.splitext(att.get("name", ""))[0],
+            "extension": os.path.splitext(att.get("name", ""))[1].lstrip("."),
+        }
+        for att in data.get("value", [])
+    ]
 
 
 def save_attachment(source: dict | bytes, location: Path) -> None:

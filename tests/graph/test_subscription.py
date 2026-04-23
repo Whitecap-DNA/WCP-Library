@@ -76,20 +76,20 @@ class TestCreateSubscription:
             assert sent["expirationDateTime"].endswith("Z")
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_swallows_request_exception_and_returns_none(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request",
             side_effect=_http_error(),
         ):
-            result = subscription.create_subscription(
-                HEADERS,
-                NOTIFICATION_URL,
-                "mail",
-                RESOURCE,
-                "created",
-                CLIENT_STATE,
-            )
-            assert result is None
+            with pytest.raises(requests.RequestException):
+                subscription.create_subscription(
+                    HEADERS,
+                    NOTIFICATION_URL,
+                    "mail",
+                    RESOURCE,
+                    "created",
+                    CLIENT_STATE,
+                )
 
 
 # ======================= get_subscription ======================= #
@@ -114,11 +114,12 @@ class TestGetSubscription:
             )
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request", side_effect=_http_error()
         ):
-            assert subscription.get_subscription(HEADERS, SUBSCRIPTION_ID) is None
+            with pytest.raises(requests.RequestException):
+                subscription.get_subscription(HEADERS, SUBSCRIPTION_ID)
 
 
 # ======================= update_subscription_expiration ======================= #
@@ -147,7 +148,7 @@ class TestUpdateSubscriptionExpiration:
             assert set(body.keys()) == {"expirationDateTime"}
             assert body["expirationDateTime"].endswith("Z")
 
-    def test_swallows_request_exception(self):
+    def test_raises_on_request_exception(self):
         existing = {"id": SUBSCRIPTION_ID, "resource": RESOURCE}
         with patch(
             "wcp_library.graph.subscription.get_subscription",
@@ -155,11 +156,8 @@ class TestUpdateSubscriptionExpiration:
         ), patch(
             "wcp_library.graph.subscription._request", side_effect=_http_error()
         ):
-            # Should not raise
-            assert (
+            with pytest.raises(requests.RequestException):
                 subscription.update_subscription_expiration(HEADERS, SUBSCRIPTION_ID)
-                is None
-            )
 
 
 # ======================= list_subscriptions ======================= #
@@ -184,11 +182,12 @@ class TestListSubscriptions:
         ):
             assert subscription.list_subscriptions(HEADERS) == []
 
-    def test_returns_none_on_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request", side_effect=_http_error()
         ):
-            assert subscription.list_subscriptions(HEADERS) is None
+            with pytest.raises(requests.RequestException):
+                subscription.list_subscriptions(HEADERS)
 
 
 # ======================= delete_subscription ======================= #
@@ -208,14 +207,13 @@ class TestDeleteSubscription:
             )
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_swallows_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request",
             side_effect=_http_error(),
         ):
-            assert (
-                subscription.delete_subscription(HEADERS, SUBSCRIPTION_ID) is None
-            )
+            with pytest.raises(requests.RequestException):
+                subscription.delete_subscription(HEADERS, SUBSCRIPTION_ID)
 
 
 # ======================= reauthorize_subscription ======================= #
@@ -235,14 +233,12 @@ class TestReauthorizeSubscription:
             )
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_swallows_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 subscription.reauthorize_subscription(HEADERS, SUBSCRIPTION_ID)
-                is None
-            )
 
 
 # ======================= recreate_subscription ======================= #
@@ -293,13 +289,11 @@ class TestUpdateNotificationUrl:
             assert mock_request.call_args.kwargs["json"] == {"notificationUrl": new_url}
             assert mock_request.call_args[0][2] == HEADERS
 
-    def test_swallows_request_exception(self):
+    def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.subscription._request", side_effect=_http_error()
         ):
-            assert (
+            with pytest.raises(requests.RequestException):
                 subscription.update_notification_url(
                     HEADERS, SUBSCRIPTION_ID, "https://x"
                 )
-                is None
-            )
