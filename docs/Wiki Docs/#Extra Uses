@@ -27,26 +27,16 @@ for chunk in divide_chunks(list_obj=example_list, size=30):
     # Do something
 ```
 
-# retry / async_retry
+# retry strategies (moved)
 
-`retry` and `async_retry` are decorator factories that retry the wrapped function on a specified tuple of exception types with exponential backoff and jitter. `retry` handles synchronous callables; `async_retry` handles coroutines. Both accept the same parameters:
+The generic `retry` / `async_retry` decorators that previously lived at `wcp_library` have been replaced by tenacity-backed strategy configs in a new module `wcp_library.retry`. Apply them via tenacity:
 
-- `exceptions`: Tuple of exception types to catch and retry on.
-- `max_attempts`: Maximum number of attempts (default `5`).
-- `delay`: Initial delay between retries in seconds (default `2`).
-- `backoff`: Multiplier applied to the delay after each failure (default `2`).
-- `jitter`: Maximum number of seconds added randomly to each delay (default `3`).
+```python
+from tenacity import retry as tenacity_retry
+from wcp_library.retry import make_generic_retry
 
-If every attempt fails, the final exception is re-raised.
-
+@tenacity_retry(**make_generic_retry(exceptions=(SomeError,), max_attempts=5))
+def something(): ...
 ```
-from wcp_library import retry, async_retry
 
-@retry(exceptions=(ConnectionError,), max_attempts=3)
-def fetch_data():
-    ...
-
-@async_retry(exceptions=(TimeoutError,))
-async def fetch_data_async():
-    ...
-```
+`wcp_library.retry` also exports pre-built SQL and Graph retry strategies (`postgres_retry_kwargs`, `oracle_retry_kwargs`, `graph_retry_kwargs`) — consumed internally by the library's SQL connection classes and Graph helpers. See `wcp_library/retry.py` for the full set.

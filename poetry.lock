@@ -2261,6 +2261,22 @@ files = [
 ]
 
 [[package]]
+name = "tenacity"
+version = "9.1.4"
+description = "Retry code until it succeeds"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55"},
+    {file = "tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a"},
+]
+
+[package.extras]
+doc = ["reno", "sphinx"]
+test = ["pytest", "tornado (>=4.5)", "typeguard"]
+
+[[package]]
 name = "trio"
 version = "0.32.0"
 description = "A friendly Python library for async concurrency and I/O"
@@ -2677,4 +2693,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12.0"
-content-hash = "4b48bd5fed65805a47be16ee802e8071d9cd4f89a7f5cf1fffc31f19a8f52b08"
+content-hash = "7fd907651fb7705bf1f1480faaaa9e339dd8db746538dc5e572bbb5f48334148"

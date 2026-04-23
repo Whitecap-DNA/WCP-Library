@@ -56,6 +56,15 @@ This module provides complete lifecycle management for Microsoft Graph webhook s
 - Notification URL update support for migrating endpoints.
 - Separate notification and lifecycle notification URL configuration.
 
+## Retry
+
+Every Graph HTTP call (across sharepoint, mail, subscription) goes through a shared internal helper (`wcp_library.graph._request`) that retries automatically on:
+- **HTTP 429 Too Many Requests** — honors the `Retry-After` response header exactly (when present as a numeric value).
+- **HTTP 503 / 504** — exponential backoff up to 60 seconds.
+- **Network errors** (`requests.ConnectionError`, `requests.Timeout`) — exponential backoff up to 60 seconds.
+
+Up to 5 attempts total. Retries are transparent to callers: the public helpers still return `None` (or the documented value) on non-retryable failure; only retryable errors loop internally. Policy defined in `wcp_library.retry.graph_retry_kwargs`.
+
 # Usage
 
 ## Authentication
@@ -162,8 +171,22 @@ subscriptions = list_subscriptions(headers)
 
 | Constant | Value | Description |
 | --- | --- | --- |
-| `REQUEST_TIMEOUT` | `30` | Default timeout (in seconds) for all HTTP requests. |
+| `REQUEST_TIMEOUT` | `30` | Default timeout (in seconds) for all HTTP requests. Override with `set_request_timeout(seconds)` at startup. |
 | `RENEWAL_THRESHOLD` | `60` | Threshold (in minutes) for triggering subscription renewal. |
+
+### set_request_timeout
+
+`def set_request_timeout(seconds: int | float) -> None:`
+
+Override the HTTP timeout used by every Graph helper (`get_headers` plus every sharepoint/mail/subscription function). Call once at application startup; subsequent Graph calls pick up the new value.
+
+```python
+from wcp_library.graph import set_request_timeout
+
+set_request_timeout(120)  # allow 2 minutes for large uploads
+```
+
+Raises `ValueError` if `seconds` is not strictly positive.
 
 ## Subscription Expiration Limits
 

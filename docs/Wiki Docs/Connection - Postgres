@@ -13,13 +13,13 @@ Optionally, you can pass it the following keyword arguments:
 ***
 
 
-The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
+The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated via `@tenacity.retry(**postgres_retry_kwargs)` — strategy defined in `wcp_library.retry`. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
 
-The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+The retry policy is tiered by error code:
+* Connection-loss codes (`08001`, `08004`) — fixed 300s wait, up to 50 attempts. Tolerates DB maintenance windows.
+* Deadlock / transient codes (`40P01`) — exponential backoff with jitter (1–30s range), up to 50 attempts. Conflicts typically resolve in milliseconds.
 
-It will only retry the method when it runs into an error code in the following list: [['08001', '08004', '40P01']](https://www.postgresql.org/docs/current/errcodes-appendix.html)
-
-These error codes are associated with Postgres shutting down/restarting/being unreachable, plus serialization/deadlock conflicts (`40P01`).
+Retriable codes: `['08001', '08004', '40P01']`. Other psycopg `OperationalError` / `DatabaseError` codes propagate immediately. Full retry policy lives in `wcp_library.retry.postgres_retry_kwargs`.
 
 ## Methods
 ### set_user
@@ -310,13 +310,13 @@ Optionally, you can pass it the following keyword arguments:
 ***
 
 
-The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
+The five primitives (execute, safe_execute, execute_multiple, execute_many, fetch_data) and remove_matching_data are retry-decorated via `@tenacity.retry(**postgres_retry_kwargs)` — strategy defined in `wcp_library.retry`. commit(), rollback(), transaction(), retry_transaction(), close_connection(), and the warehouse composites (export_df_to_warehouse, upsert_df_to_warehouse, truncate_table, empty_table) are NOT retry-decorated on the connection class — but the composites dispatch through the retry-decorated primitives, so retry still covers them transitively. Transaction / AsyncTransaction primitives are intentionally undecorated; use retry_transaction() for transaction-boundary retry.
 
-The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+The retry policy is tiered by error code:
+* Connection-loss codes (`08001`, `08004`) — fixed 300s wait, up to 50 attempts. Tolerates DB maintenance windows.
+* Deadlock / transient codes (`40P01`) — exponential backoff with jitter (1–30s range), up to 50 attempts. Conflicts typically resolve in milliseconds.
 
-It will only retry the method when it runs into an error code in the following list: [['08001', '08004', '40P01']](https://www.postgresql.org/docs/current/errcodes-appendix.html)
-
-These error codes are associated with Postgres shutting down/restarting/being unreachable, plus serialization/deadlock conflicts (`40P01`).
+Retriable codes: `['08001', '08004', '40P01']`. Other psycopg `OperationalError` / `DatabaseError` codes propagate immediately. Full retry policy lives in `wcp_library.retry.postgres_retry_kwargs`.
 
 ## Methods
 ### set_user

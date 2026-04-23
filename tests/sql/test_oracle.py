@@ -12,12 +12,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import oracledb
 import pandas as pd
 import pytest
+from tenacity import stop_after_attempt
 
 from wcp_library.sql.oracle import (
     AsyncOracleConnection,
     OracleConnection,
     _quote_identifier,
-    oracle_retry_codes,
 )
 
 
@@ -36,7 +36,7 @@ class _FakeErrorObj:
 
 def _retriable_oracle_error():
     """Build an OperationalError wrapping an error obj with a retriable full_code."""
-    return oracledb.OperationalError(_FakeErrorObj(oracle_retry_codes[0]))
+    return oracledb.OperationalError(_FakeErrorObj("ORA-01033"))
 
 
 def _non_retriable_oracle_error():
@@ -153,9 +153,6 @@ class TestOracleConnectionInit:
         assert oc._port is None
         assert oc._database is None
         assert oc._sid is None
-        assert oc.retry_limit == 50
-        assert oc.retry_error_codes == oracle_retry_codes
-        assert oc._retry_count == 0
 
     def test_custom_pool_options(self):
         oc = OracleConnection(use_pool=True, min_connections=3, max_connections=10)
@@ -458,23 +455,28 @@ class TestOracleConnectionRetryBehavior:
     def test_retriable_error_then_success_retries(self, sync_oracle, mock_sync_cursor):
         # First call raises retriable, second succeeds
         mock_sync_cursor.execute.side_effect = [_retriable_oracle_error(), None]
-        with patch("wcp_library.sql.sleep") as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             sync_oracle.execute("SELECT 1 FROM DUAL")
         assert mock_sync_cursor.execute.call_count == 2
         assert mock_sleep.called  # retry waited
 
-    def test_retry_limit_reached_raises(self, sync_oracle, mock_sync_cursor):
-        sync_oracle.retry_limit = 2
+    def test_retry_limit_reached_raises(self, sync_oracle, mock_sync_cursor, monkeypatch):
+        # Lower retry_limit to 2 attempts total by patching the decorator's
+        # Retrying.stop. The @tenacity_retry decorator captures oracle_retry_kwargs
+        # at decoration time, so we patch the stored Retrying instance directly.
+        monkeypatch.setattr(
+            OracleConnection.execute.retry, "stop", stop_after_attempt(2)
+        )
         mock_sync_cursor.execute.side_effect = _retriable_oracle_error()
-        with patch("wcp_library.sql.sleep"):
+        with patch("time.sleep"):
             with pytest.raises(oracledb.OperationalError):
                 sync_oracle.execute("SELECT 1 FROM DUAL")
-        # Attempts: initial + retry_limit retries => retry_limit + 1
-        assert mock_sync_cursor.execute.call_count == sync_oracle.retry_limit + 1
+        # stop_after_attempt(2) => 2 total attempts
+        assert mock_sync_cursor.execute.call_count == 2
 
     def test_non_retriable_error_not_retried(self, sync_oracle, mock_sync_cursor):
         mock_sync_cursor.execute.side_effect = _non_retriable_oracle_error()
-        with patch("wcp_library.sql.sleep") as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
             with pytest.raises(oracledb.OperationalError):
                 sync_oracle.execute("SELECT 1 FROM DUAL")
         mock_sync_cursor.execute.assert_called_once()
@@ -501,8 +503,6 @@ class TestAsyncOracleConnectionInit:
         assert ao.max_connections == 5
         assert ao._connection is None
         assert ao._session_pool is None
-        assert ao.retry_limit == 50
-        assert ao.retry_error_codes == oracle_retry_codes
 
     def test_custom_pool_options(self):
         ao = AsyncOracleConnection(use_pool=True, min_connections=4, max_connections=8)
@@ -821,26 +821,32 @@ class TestAsyncOracleConnectionRetryBehavior:
     async def test_retriable_error_then_success_retries(self, async_oracle, async_conn_pair):
         _conn, cursor = async_conn_pair
         cursor.execute.side_effect = [_retriable_oracle_error(), None]
-        with patch("wcp_library.sql.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await async_oracle.execute("SELECT 1 FROM DUAL")
         assert cursor.execute.await_count == 2
         mock_sleep.assert_awaited()
 
     @pytest.mark.asyncio
-    async def test_retry_limit_reached_raises(self, async_oracle, async_conn_pair):
+    async def test_retry_limit_reached_raises(self, async_oracle, async_conn_pair, monkeypatch):
         _conn, cursor = async_conn_pair
-        async_oracle.retry_limit = 2
+        # Lower retry_limit to 2 attempts total by patching the decorator's
+        # Retrying.stop. The @tenacity_retry decorator captures oracle_retry_kwargs
+        # at decoration time, so we patch the stored Retrying instance directly.
+        monkeypatch.setattr(
+            AsyncOracleConnection.execute.retry, "stop", stop_after_attempt(2)
+        )
         cursor.execute.side_effect = _retriable_oracle_error()
-        with patch("wcp_library.sql.asyncio.sleep", new=AsyncMock()):
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(oracledb.OperationalError):
                 await async_oracle.execute("SELECT 1 FROM DUAL")
-        assert cursor.execute.await_count == async_oracle.retry_limit + 1
+        # stop_after_attempt(2) => 2 total attempts
+        assert cursor.execute.await_count == 2
 
     @pytest.mark.asyncio
     async def test_non_retriable_error_not_retried(self, async_oracle, async_conn_pair):
         _conn, cursor = async_conn_pair
         cursor.execute.side_effect = _non_retriable_oracle_error()
-        with patch("wcp_library.sql.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             with pytest.raises(oracledb.OperationalError):
                 await async_oracle.execute("SELECT 1 FROM DUAL")
         cursor.execute.assert_awaited_once()

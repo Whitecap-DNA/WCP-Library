@@ -43,23 +43,25 @@ class TestGetMailboxFolders:
     def test_lists_root_mail_folders(self):
         payload = {"value": [{"id": "f1", "displayName": "Inbox"}]}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             result = mail.get_mailbox_folders(HEADERS, MAILBOX)
             assert result == [{"id": "f1", "displayName": "Inbox"}]
-            called_url = mock_get.call_args[0][0]
+            called_method = mock_request.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
+            assert called_method == "GET"
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/mailFolders"
             )
-            assert mock_get.call_args.kwargs["headers"] == HEADERS
+            assert mock_request.call_args[0][2] == HEADERS
 
     def test_lists_child_folders_when_parent_provided(self):
         payload = {"value": [{"id": "child", "displayName": "Subfolder"}]}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             mail.get_mailbox_folders(HEADERS, MAILBOX, parent_folder_id="parent-1")
-            called_url = mock_get.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/mailFolders"
                 "/parent-1/childFolders"
@@ -67,13 +69,13 @@ class TestGetMailboxFolders:
 
     def test_returns_empty_list_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", side_effect=_http_error()
+            "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
             assert mail.get_mailbox_folders(HEADERS, MAILBOX) == []
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json({})
+            "wcp_library.graph.mail._request", return_value=_ok_json({})
         ):
             assert mail.get_mailbox_folders(HEADERS, MAILBOX) == []
 
@@ -103,19 +105,19 @@ class TestGetEmailMetadata:
     def test_returns_message_json(self):
         payload = {"id": MESSAGE_ID, "subject": "Hello"}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             result = mail.get_email_metadata(HEADERS, MAILBOX, MESSAGE_ID)
             assert result == payload
-            called_url = mock_get.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages/{MESSAGE_ID}"
             )
-            assert mock_get.call_args.kwargs["headers"] == HEADERS
+            assert mock_request.call_args[0][2] == HEADERS
 
     def test_returns_none_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", side_effect=_http_error()
+            "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
             assert mail.get_email_metadata(HEADERS, MAILBOX, MESSAGE_ID) is None
 
@@ -124,11 +126,11 @@ class TestGetEmails:
     def test_lists_emails_from_root_when_no_folder_id(self):
         payload = {"value": [{"id": MESSAGE_ID, "subject": "Hi"}]}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             result = mail.get_emails(HEADERS, MAILBOX)
             assert result == [{"id": MESSAGE_ID, "subject": "Hi"}]
-            called_url = mock_get.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages"
             )
@@ -136,10 +138,10 @@ class TestGetEmails:
     def test_lists_emails_from_folder_when_id_provided(self):
         payload = {"value": []}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             mail.get_emails(HEADERS, MAILBOX, folder_id=FOLDER_ID)
-            called_url = mock_get.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}"
                 f"/mailFolders/{FOLDER_ID}/messages"
@@ -147,13 +149,13 @@ class TestGetEmails:
 
     def test_returns_empty_list_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", side_effect=_http_error()
+            "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
             assert mail.get_emails(HEADERS, MAILBOX) == []
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json({})
+            "wcp_library.graph.mail._request", return_value=_ok_json({})
         ):
             assert mail.get_emails(HEADERS, MAILBOX) == []
 
@@ -167,10 +169,10 @@ class TestGetAttachments:
             ]
         }
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
-        ) as mock_get:
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+        ) as mock_request:
             result = mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
-            called_url = mock_get.call_args[0][0]
+            called_url = mock_request.call_args[0][1]
             assert called_url == (
                 f"https://graph.microsoft.com/v1.0/users/{MAILBOX}"
                 f"/messages/{MESSAGE_ID}/attachments"
@@ -195,7 +197,7 @@ class TestGetAttachments:
     def test_handles_attachment_without_name(self):
         payload = {"value": [{"id": "att-no-name"}]}
         with patch(
-            "wcp_library.graph.mail.requests.get", return_value=_ok_json(payload)
+            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
         ):
             result = mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
             assert result[0]["name_no_extension"] == ""
@@ -203,7 +205,7 @@ class TestGetAttachments:
 
     def test_returns_empty_list_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail.requests.get", side_effect=_http_error()
+            "wcp_library.graph.mail._request", side_effect=_http_error()
         ):
             assert mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID) == []
 

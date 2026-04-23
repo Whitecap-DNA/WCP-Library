@@ -11,13 +11,13 @@ Passing these arguments (specifically if use_pool is True) it'll use a connectio
 ***
 
 
-Every method besides set_user has a retry wrapper.
+Methods on OracleConnection / AsyncOracleConnection (`execute`, `safe_execute`, `execute_multiple`, `execute_many`, `fetch_data`, `remove_matching_data`, `export_df_to_warehouse`, `truncate_table`, `empty_table`, `_connect`) are retry-decorated via `@tenacity.retry(**oracle_retry_kwargs)` — strategy defined in `wcp_library.retry`.
 
-The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+The retry policy is tiered by error code:
+* Connection-loss codes (`ORA-01033`, `DPY-6005`, `DPY-4011`) — fixed 300s wait, up to 50 attempts. Tolerates DB maintenance windows.
+* Transient codes (`ORA-08103`, `ORA-04021`, `ORA-01652`) — exponential backoff with jitter (1–30s range), up to 50 attempts. Transient lock-busy / tablespace-full conditions typically clear within seconds.
 
-It will only retry the method when it runs into an error code in the following list: ['[ORA-01033](https://docs.oracle.com/en/error-help/db/ora-01033/?r=23ai)', '[DPY-6005](https://python-oracledb.readthedocs.io/en/latest/release_notes.html#id37)', '[DPY-4011](https://python-oracledb.readthedocs.io/en/latest/user_guide/troubleshooting.html#dpy-4011)', 'ORA-08103', 'ORA-04021', 'ORA-01652']
-
-These error codes are associated with Oracle shutting down/restarting/being unreachable, plus transient row-not-found, library-lock-busy, and tablespace-full conditions.
+Retriable codes: `['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652']`. Other oracledb `OperationalError` / `DatabaseError` codes propagate immediately. Full retry policy lives in `wcp_library.retry.oracle_retry_kwargs`.
 
 ## Methods
 ### set_user
@@ -212,13 +212,13 @@ Passing these arguments (specifically if use_pool is True) it'll use a connectio
 ***
 
 
-Every method besides set_user has a retry wrapper.
+Methods on OracleConnection / AsyncOracleConnection (`execute`, `safe_execute`, `execute_multiple`, `execute_many`, `fetch_data`, `remove_matching_data`, `export_df_to_warehouse`, `truncate_table`, `empty_table`, `_connect`) are retry-decorated via `@tenacity.retry(**oracle_retry_kwargs)` — strategy defined in `wcp_library.retry`.
 
-The retry wrapper will retry methods up to 50 times (with a 5 minute wait between each attempt).
+The retry policy is tiered by error code:
+* Connection-loss codes (`ORA-01033`, `DPY-6005`, `DPY-4011`) — fixed 300s wait, up to 50 attempts. Tolerates DB maintenance windows.
+* Transient codes (`ORA-08103`, `ORA-04021`, `ORA-01652`) — exponential backoff with jitter (1–30s range), up to 50 attempts. Transient lock-busy / tablespace-full conditions typically clear within seconds.
 
-It will only retry the method when it runs into an error code in the following list: ['[ORA-01033](https://docs.oracle.com/en/error-help/db/ora-01033/?r=23ai)', '[DPY-6005](https://python-oracledb.readthedocs.io/en/latest/release_notes.html#id37)', '[DPY-4011](https://python-oracledb.readthedocs.io/en/latest/user_guide/troubleshooting.html#dpy-4011)', 'ORA-08103', 'ORA-04021', 'ORA-01652']
-
-These error codes are associated with Oracle shutting down/restarting/being unreachable, plus transient row-not-found, library-lock-busy, and tablespace-full conditions.
+Retriable codes: `['ORA-01033', 'DPY-6005', 'DPY-4011', 'ORA-08103', 'ORA-04021', 'ORA-01652']`. Other oracledb `OperationalError` / `DatabaseError` codes propagate immediately. Full retry policy lives in `wcp_library.retry.oracle_retry_kwargs`.
 
 ## Methods
 ### set_user
