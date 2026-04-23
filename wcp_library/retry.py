@@ -21,6 +21,7 @@ import random
 
 import oracledb
 import psycopg
+import requests
 from tenacity import retry_if_exception, retry_if_exception_type, stop_after_attempt
 
 logger = logging.getLogger(__name__)
@@ -29,14 +30,24 @@ logger = logging.getLogger(__name__)
 # Module-private sentinel wrapper for Graph retry; kept here so the
 # strategy can reference it. graph/__init__.py imports this symbol
 # when building retryable exceptions.
-class _GraphRetriable(Exception):
+class _GraphRetriable(requests.RequestException):
     """Raised inside wcp_library.graph._request to signal tenacity to retry.
 
-    Module-private -- graph callers rely on `requests.exceptions.*` and the
-    None-on-error contract of public helpers, not this sentinel.
+    Module-private. Inherits from ``requests.RequestException`` so that
+    the ``except requests.RequestException → return None`` clauses in
+    every public graph helper catch it when tenacity exhausts its
+    retry budget, preserving the None-on-error contract.
     """
     def __init__(self, response=None, underlying=None):
-        self.response = response
+        # Build a message string so str(self) is informative (for
+        # callers that log e without inspecting .response / .underlying).
+        if response is not None:
+            message = f"Graph returned retryable status {response.status_code}"
+        elif underlying is not None:
+            message = f"Graph network error: {underlying!r}"
+        else:
+            message = "Graph retryable error"
+        super().__init__(message, response=response)
         self.underlying = underlying
 
 

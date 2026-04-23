@@ -127,3 +127,74 @@ class TestRequestTimeoutConfig:
         monkeypatch.setattr(graph_mod, "REQUEST_TIMEOUT", 30)
         graph_mod.set_request_timeout(15.5)
         assert graph_mod.REQUEST_TIMEOUT == 15.5
+
+
+class TestGraphRetriableContract:
+    """Regression tests for the None-on-error contract of public graph
+    helpers when tenacity exhausts its retry budget.
+
+    Bug fixed in fix/graph-retriable-inheritance: _GraphRetriable used
+    to inherit from Exception, so when `_request` exhausted its 5-attempt
+    budget on a persistent 503, the exception escaped the public helper's
+    `except requests.RequestException` clause and propagated to callers,
+    violating the documented None-on-error contract.
+    """
+
+    def test_graph_retriable_is_request_exception(self):
+        """_GraphRetriable must inherit from RequestException so that
+        `except requests.RequestException` in every public helper catches
+        it when retries are exhausted."""
+        assert issubclass(_GraphRetriable, requests.RequestException)
+
+    def test_graph_retriable_has_response_attribute(self):
+        """Preserves the .response attribute for error inspection."""
+        resp = _ok_response(503)
+        exc = _GraphRetriable(response=resp)
+        assert exc.response is resp
+
+    def test_graph_retriable_has_underlying_attribute(self):
+        """Preserves the .underlying attribute for network error cases."""
+        net_err = requests.ConnectionError("boom")
+        exc = _GraphRetriable(underlying=net_err)
+        assert exc.underlying is net_err
+
+    def test_sharepoint_helper_returns_none_when_retries_exhausted(self):
+        """End-to-end: a public sharepoint helper returns None (not raises)
+        when _request exhausts its retry budget on a persistent 503."""
+        from wcp_library.graph import sharepoint
+
+        persistent_503 = _ok_response(503)
+        with patch("wcp_library.graph.requests.request") as mock_req, \
+             patch("time.sleep"):
+            mock_req.return_value = persistent_503
+            result = sharepoint.get_site_metadata({}, "https://contoso.sharepoint.com/sites/x")
+
+        assert result is None
+        # Confirm retries were exhausted (5 attempts = 1 + 4 retries)
+        assert mock_req.call_count == 5
+
+    def test_mail_helper_returns_none_when_retries_exhausted(self):
+        from wcp_library.graph import mail
+
+        persistent_503 = _ok_response(503)
+        with patch("wcp_library.graph.requests.request") as mock_req, \
+             patch("time.sleep"):
+            mock_req.return_value = persistent_503
+            result = mail.get_mailbox_folders({}, "user@example.com")
+
+        # `get_mailbox_folders` returns [] on error per its contract
+        assert result == []
+        assert mock_req.call_count == 5
+
+    def test_sharepoint_helper_returns_none_on_persistent_connection_error(self):
+        """Same path for network errors — _GraphRetriable(underlying=...)
+        must be caught by the public helper's except clause."""
+        from wcp_library.graph import sharepoint
+
+        with patch("wcp_library.graph.requests.request") as mock_req, \
+             patch("time.sleep"):
+            mock_req.side_effect = requests.ConnectionError("network down")
+            result = sharepoint.get_site_metadata({}, "https://contoso.sharepoint.com/sites/x")
+
+        assert result is None
+        assert mock_req.call_count == 5
