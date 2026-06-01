@@ -1,6 +1,6 @@
 [project]
 name = "wcp-library"
-version = "1.13.0"
+version = "1.13.1"
 description = "Common utilites for internal development at WCP"
 authors = [{ name = "Mitch-Petersen", email = "mitch.petersen@wcap.ca" }]
 readme = "README.md"
@@ -19,7 +19,6 @@ get-gecko-driver = "^1.5.1"
 oracledb = "^3.4.1"
 pandas = "^2.2.3"
 paramiko = "^3.5.1"
-pip-system-certs = "^4.0"
 psycopg = "^3.2.7"
 psycopg-binary = "^3.3.2"
 psycopg-pool = "^3.3.0"
