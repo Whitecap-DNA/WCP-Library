@@ -267,13 +267,20 @@ class TestGetFileContent:
                 sharepoint.get_file_content(HEADERS, SITE_ID, "/x.txt")
 
 
-class TestGetFileContentById:
+class TestGetFileContentByIdMode:
+    """get_file_content's ID-based addressing mode (drive_id + item_id).
+
+    get_file_content_by_id was merged into get_file_content in 7f6080e;
+    these tests exercise the mode that replaced it.
+    """
     def test_returns_bytes(self):
         with patch(
             "wcp_library.graph.sharepoint._request",
             return_value=_ok_bytes(b"raw"),
         ) as mock_req:
-            result = sharepoint.get_file_content_by_id(HEADERS, DRIVE_ID, ITEM_ID)
+            result = sharepoint.get_file_content(
+                HEADERS, None, None, drive_id=DRIVE_ID, item_id=ITEM_ID
+            )
             assert result == b"raw"
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/items/{ITEM_ID}/content"
@@ -284,7 +291,9 @@ class TestGetFileContentById:
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
-                sharepoint.get_file_content_by_id(HEADERS, DRIVE_ID, ITEM_ID)
+                sharepoint.get_file_content(
+                    HEADERS, None, None, drive_id=DRIVE_ID, item_id=ITEM_ID
+                )
 
 
 class TestUploadFile:

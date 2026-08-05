@@ -264,7 +264,7 @@ class TestRecreateSubscription:
             mock_create.assert_called_once_with(
                 HEADERS,
                 NOTIFICATION_URL,
-                RESOURCE.split("/")[0],  # resource_type inferred as first segment
+                "mail",  # _get_resource_type maps "messages" in the path to "mail"
                 RESOURCE,
                 "created",
                 CLIENT_STATE,
