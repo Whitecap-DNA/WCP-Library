@@ -6,7 +6,7 @@ from typing import Callable, Generator
 import cryptography.hazmat.primitives.kdf.pbkdf2
 
 # PyInstaller import
-import pip_system_certs.wrapt_requests
+# import pip_system_certs.wrapt_requests
 
 logger = logging.getLogger(__name__)
 
