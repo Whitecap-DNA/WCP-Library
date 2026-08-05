@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 
+_GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 REQUEST_TIMEOUT = 30  # seconds; override via set_request_timeout()
 RENEWAL_THRESHOLD = 60  # minutes
 

@@ -16,13 +16,15 @@ Four public policies:
 * ``make_generic_retry(exceptions, ...)`` -- factory for arbitrary
   exception-list retry with exp backoff + jitter.
 """
+
 import logging
 import random
 
 import oracledb
 import psycopg
 import requests
-from tenacity import retry_if_exception, retry_if_exception_type, stop_after_attempt
+from tenacity import (retry_if_exception, retry_if_exception_type,
+                      stop_after_attempt)
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +36,27 @@ class _GraphRetriable(requests.RequestException):
     """Raised inside wcp_library.graph._request to signal tenacity to retry.
 
     Module-private. Inherits from ``requests.RequestException`` so that
-    the ``except requests.RequestException → return None`` clauses in
-    every public graph helper catch it when tenacity exhausts its
-    retry budget, preserving the None-on-error contract.
+    it composes with any ordinary ``requests`` exception handling a
+    caller already has in place, and so callers who only want to catch
+    "something about this Graph call went wrong" don't need to know
+    about this internal type.
+
+    Note on error handling contract: ``_request`` does **not** swallow
+    this exception. ``graph_retry_kwargs`` sets ``reraise=True``, so once
+    tenacity's retry budget (``stop_after_attempt(5)``) is exhausted,
+    ``_request`` re-raises ``_GraphRetriable`` to its caller; likewise,
+    non-retryable 4xx/5xx responses raise ``requests.HTTPError`` via
+    ``response.raise_for_status()``. Neither is caught inside
+    ``_request``. The public helpers in ``wcp_library.graph.sharepoint``
+    and ``wcp_library.graph.subscriptions`` do not catch
+    ``requests.RequestException`` either — they let it propagate to
+    their caller. There is currently no "return None on exhausted
+    retries" behavior anywhere in this call chain; if that contract is
+    wanted, it needs to be added explicitly (e.g. in each public
+    helper, or via a shared decorator), not assumed from this class
+    existing.
     """
+
     def __init__(self, response=None, underlying=None):
         # Build a message string so str(self) is informative (for
         # callers that log e without inspecting .response / .underlying).
@@ -53,14 +72,14 @@ class _GraphRetriable(requests.RequestException):
 
 # Public error-code constants (frozen sets for set-membership checks).
 _POSTGRES_CONNECTION_LOSS = frozenset({"08001", "08004"})
-_POSTGRES_TRANSIENT       = frozenset({"40P01"})
-POSTGRES_RETRY_CODES      = _POSTGRES_CONNECTION_LOSS | _POSTGRES_TRANSIENT
+_POSTGRES_TRANSIENT = frozenset({"40P01"})
+POSTGRES_RETRY_CODES = _POSTGRES_CONNECTION_LOSS | _POSTGRES_TRANSIENT
 
-_ORACLE_CONNECTION_LOSS   = frozenset({"ORA-01033", "DPY-6005", "DPY-4011"})
-_ORACLE_TRANSIENT         = frozenset({"ORA-08103", "ORA-04021", "ORA-01652"})
-ORACLE_RETRY_CODES        = _ORACLE_CONNECTION_LOSS | _ORACLE_TRANSIENT
+_ORACLE_CONNECTION_LOSS = frozenset({"ORA-01033", "DPY-6005", "DPY-4011"})
+_ORACLE_TRANSIENT = frozenset({"ORA-08103", "ORA-04021", "ORA-01652"})
+ORACLE_RETRY_CODES = _ORACLE_CONNECTION_LOSS | _ORACLE_TRANSIENT
 
-GRAPH_RETRIABLE_STATUSES  = frozenset({429, 503, 504})
+GRAPH_RETRIABLE_STATUSES = frozenset({429, 503, 504})
 
 
 def _extract_full_code(exc: BaseException) -> str | None:
@@ -120,7 +139,10 @@ def _make_sql_retry(
         sleep_s = retry_state.next_action.sleep if retry_state.next_action else 0.0
         logger.info(
             "%s retry %d: code=%s, waiting %.1fs",
-            name, retry_state.attempt_number, code, sleep_s,
+            name,
+            retry_state.attempt_number,
+            code,
+            sleep_s,
         )
 
     return dict(
@@ -182,8 +204,11 @@ def make_generic_retry(
     :param backoff: multiplier applied to delay each attempt.
     :param jitter: max random seconds added per retry.
     """
+
     def _wait(retry_state) -> float:
-        return delay * (backoff ** (retry_state.attempt_number - 1)) + random.uniform(0, jitter)
+        return delay * (backoff ** (retry_state.attempt_number - 1)) + random.uniform(
+            0, jitter
+        )
 
     return dict(
         retry=retry_if_exception_type(exceptions),
