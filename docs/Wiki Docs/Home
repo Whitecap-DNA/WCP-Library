@@ -12,6 +12,7 @@ Please see [this](https://github.com/Whitecap-DNA/WCP-Library/wiki/%23Extra-Uses
     3. Internet
     4. Oracle
     5. Postgres
+    6. Windows
 2. SQL Interaction
     1. Oracle ([Synchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Oracle#oracleconnection), [Asynchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Oracle#asyncoracleconnection))
     2. Postgres ([Synchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Postgres#postgresconnection), [Asynchronous](https://github.com/Whitecap-DNA/WCP-Library/wiki/Connection-%E2%80%90-Postgres#asyncpostgresconnection))
