@@ -47,11 +47,9 @@ from pathlib import Path
 
 from yarl import URL
 
-from wcp_library.graph import _request
+from wcp_library.graph import _GRAPH_ROOT, _request
 
 logger = logging.getLogger(__name__)
-
-_GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 
 
 def _drive_base(site_id: str, drive_id: str | None) -> str:
@@ -214,41 +212,72 @@ def get_file_metadata(
 
 def get_file_content(
     headers: dict,
-    site_id: str,
-    file_path: str,
+    site_id: str | None,
+    file_path: str | None,
     *,
     drive_id: str | None = None,
-) -> bytes:
-    """Retrieves the file content from a SharePoint site using the Microsoft Graph API.
+    item_id: str | None = None,
+) -> bytes | None:
+    """Retrieves file content from SharePoint or OneDrive via the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
+
+    Two addressing modes are supported:
+    - **Path-based** (SharePoint): provide ``site_id`` and ``file_path``.
+      An optional ``drive_id`` targets a specific document library; omitting it
+      uses the site's default drive.
+    - **ID-based** (OneDrive): provide ``drive_id`` and ``item_id``.
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site (required for path-based).
+    :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+        (required for path-based).
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used (for path-based) or the root drive is used (for ID-based).
+    :param item_id: The ID of the file (required for ID-based).
+    :return: The file content as bytes, or ``None`` if the download failed.
+    :raises ValueError: If the required parameters for the chosen addressing mode are not provided.
+    """
+    if item_id is not None:
+        if drive_id is None:
+            raise ValueError("drive_id is required when item_id is provided.")
+        url = f"{_GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
+    elif site_id is not None and file_path is not None:
+        url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
+    else:
+        raise ValueError(
+            "Provide either (site_id + file_path) for path-based access "
+            "or (drive_id + item_id) for ID-based access."
+        )
+
+    return _request("GET", url, headers).content
+
+
+def download_file(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    download_folder: Path,
+    *,
+    drive_id: str | None = None,
+) -> Path | None:
+    """Downloads a file from a SharePoint site using the Microsoft Graph API.
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
+    :param file_path: The path of the file to download (e.g. "/Shared Documents/My Folder/file.txt")
+    :param download_folder: Local directory to save the downloaded file into.
     :param drive_id: Optional drive (document library) ID. If omitted, the
         site's default drive is used.
-    :return: The file content as bytes.
-    :raises requests.RequestException: If the request fails (including after
-        retries are exhausted).
+    :return: The path to the downloaded file, or ``None`` if the download failed.
     """
-    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
-    response = _request("GET", url, headers)
-    return response.content
+    content = get_file_content(headers, site_id, file_path, drive_id=drive_id)
+    if content is None:
+        return None
 
-
-def get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes:
-    """Retrieves the file content from a SharePoint site using the Microsoft Graph API
-        with drive and item IDs (for files in personal OneDrive).
-
-    :param headers: The headers containing the Authorization token.
-    :param drive_id: The OneDrive drive ID.
-    :param item_id: The OneDrive item ID.
-    :return: The file content as bytes.
-    :raises requests.RequestException: If the request fails (including after
-        retries are exhausted).
-    """
-    url = f"{_GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
-    response = _request("GET", url, headers)
-    return response.content
+    output_path = download_folder / Path(file_path).name
+    output_path.write_bytes(content)
+    return output_path
 
 
 def upload_file(
@@ -272,7 +301,7 @@ def upload_file(
     :param content: The file content as bytes, bytearray, memoryview,
         or base64-encoded string (from Graph API).
     :param conflict_behavior: The behavior when a file with the same name already exists.
-        Options are "rename", "replace", or "fail". Default is "rename".
+        Options are "rename"(default), "replace", or "fail".
     :param drive_id: Optional drive (document library) ID. If omitted, the
         site's default drive is used.
     :return: The response from the Microsoft Graph API as a JSON object.
@@ -299,35 +328,6 @@ def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
     if isinstance(content, str):
         return base64.b64decode(content)
     raise TypeError(f"Unsupported content type: {type(content).__name__}")
-
-
-def download_file(
-    headers: dict,
-    site_id: str,
-    file_path: str,
-    download_folder: Path,
-    *,
-    drive_id: str | None = None,
-) -> Path:
-    """Downloads a file from a SharePoint site using the Microsoft Graph API.
-    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
-
-    :param headers: The headers containing the Authorization token.
-    :param site_id: The ID of the SharePoint site.
-    :param file_path: The path of the file to download
-        (e.g. "/Shared Documents/My Folder/file.txt")
-    :param download_folder: The local folder path to save the file to. Defaults to current directory.
-    :param drive_id: Optional drive (document library) ID. If omitted, the
-        site's default drive is used.
-    :return: The path to the downloaded file.
-    :raises requests.RequestException: If the request fails (including after
-        retries are exhausted).
-    """
-    url = f"{_drive_base(site_id, drive_id)}/root:{file_path}:/content"
-    response = _request("GET", url, headers)
-    output_path = download_folder / Path(file_path).name
-    output_path.write_bytes(response.content)
-    return output_path
 
 
 def move_file(
@@ -610,9 +610,7 @@ def get_list_item_metadata(
     return response.json()
 
 
-def create_list_item(
-    headers: dict, site_id: str, list_id: str, fields: dict
-) -> dict:
+def create_list_item(headers: dict, site_id: str, list_id: str, fields: dict) -> dict:
     """Creates a new item in a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-create
 

@@ -36,9 +36,8 @@ from pathlib import Path
 from typing import Tuple
 
 import aiofiles
-import requests
 
-from wcp_library.graph import _request
+from wcp_library.graph import _GRAPH_ROOT, _request
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ def get_mailbox_folders(
     :param headers: The headers containing the Authorization token.
     :return: A list of mailbox folder metadata as JSON objects.
     """
-    url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/mailFolders"
+    url = f"{_GRAPH_ROOT}/users/{mailbox}/mailFolders"
     if parent_folder_id:
         url += f"/{parent_folder_id}/childFolders"
 
@@ -91,7 +90,7 @@ def get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | N
     :param notification: The Microsoft Graph API response.
     :return: The email details as a JSON object.
     """
-    url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}"
+    url = f"{_GRAPH_ROOT}/users/{mailbox}/messages/{message_id}"
     response = _request("GET", url, headers)
     return response.json()
 
@@ -105,7 +104,7 @@ def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> lis
     :param folder_id: The ID of the folder to list emails from. If None, lists from the root folder.
     :return: A list of email metadata as JSON objects.
     """
-    url = f"https://graph.microsoft.com/v1.0/users/{mailbox}"
+    url = f"{_GRAPH_ROOT}/users/{mailbox}"
     if folder_id:
         url += f"/mailFolders/{folder_id}"
     url += "/messages"
@@ -120,10 +119,11 @@ def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
     API Reference: https://learn.microsoft.com/en-us/graph/api/message-list-attachments
 
     :param headers: The headers containing the Authorization token.
-    :param response: The Microsoft Graph API response.
+    :param mailbox: The user's mailbox.
+    :param message_id: The ID of the message to fetch attachments for.
     :return: A list of dictionaries containing the attachment details.
     """
-    url = f"https://graph.microsoft.com/v1.0/users/{mailbox}/messages/{message_id}/attachments"
+    url = f"{_GRAPH_ROOT}/users/{mailbox}/messages/{message_id}/attachments"
     resp = _request("GET", url, headers)
     data = resp.json()
     return [
