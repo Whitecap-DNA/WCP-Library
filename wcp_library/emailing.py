@@ -329,7 +329,7 @@ def _facts_table_html(rows: list[tuple[str, Any]]) -> str:
     """
     cells: list[str] = []
     for label, value in rows:
-        if value in (None, "", []):
+        if value is None or (isinstance(value, (str, list)) and not value):
             continue
         cells.append(
             "<tr>"

@@ -391,6 +391,23 @@ class TestEmailReport:
             assert kwargs["bcc"] == ["bcc@example.com"]
             assert kwargs["attachments"] == [attachment]
 
+    def test_numpy_scalar_fact_value_does_not_raise(self) -> None:
+        import numpy as np
+
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                facts=[("Row count", np.int64(0))],
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "Row count" in body
+            assert "0" in body
+
 
 # ---------------------------------------------------------------------------
 # MailServer._build_message
