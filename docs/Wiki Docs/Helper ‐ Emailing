@@ -17,7 +17,7 @@ mail_server.send_email("python@wcap.ca",
 The module includes:
 
 - A core method `send_email()` for sending emails with flexible options.
-- A convenience wrapper `email_reporting()` for sending plain-text notifications to the internal Reporting distribution list.
+- A generic `email_report()` for sending a styled HTML error-report email (facts table, optional exception summary + traceback).
 
 ## Classes
 
@@ -88,28 +88,44 @@ Sends an email with optional HTML body, attachments, and CC / BCC recipients.
 - Adds attachments (from disk `Path` or in-memory `(filename, bytes)` tuple).
 - Sends via `mail.smtp2go.com:587` with `STARTTLS`, authenticating using the SMTP2GO credentials fetched from the vault.
 
-### email_reporting()
+### email_report()
 
 #### Signature
 
 ```
-email_reporting(subject: str, body: str) -> None
+email_report(
+    sender: str,
+    recipients: list[str] | str,
+    subject: str,
+    project: str,
+    facts: list[tuple[str, Any]] | None = None,
+    error: BaseException | None = None,
+    cc: list[str] | str | None = None,
+    bcc: list[str] | str | None = None,
+    attachments: list[Path | tuple[str, bytes]] | None = None,
+) -> None
 ```
 
 #### Description
 
-Shortcut for sending a plain-text email to the internal Reporting distribution list.
+Sends a styled HTML error-report email: a red banner with the subject, a project-attribution strip, an optional facts table, and — when an exception is passed — its type/message summary and full traceback.
 
 #### Parameters
 
-- `subject` (str): Email subject.
-- `body` (str): Plain-text email body.
+- `sender` (str): Sending address. Must be in the approved-senders list (same list as `send_email()`).
+- `recipients` (list[str] | str): One or more primary recipient addresses.
+- `subject` (str): Report headline, shown in the banner. The email's actual subject line is this text prefixed with `[python - {project}]`.
+- `project` (str): Identifies the calling script/system (e.g. `"api-ingest"`). Shown in the subject prefix, a strip under the banner, and the footer.
+- `facts` (list[tuple[str, Any]] | None): Optional `(label, value)` rows rendered as a table. Rows whose value is `None`, `""`, or `[]` are skipped.
+- `error` (BaseException | None): Optional exception. When given, its type name and message are shown as a one-line summary, and its full traceback is rendered below.
+- `cc` (list[str] | str | None): Optional carbon-copy recipients.
+- `bcc` (list[str] | str | None): Optional blind carbon-copy recipients.
+- `attachments` (list[Path | tuple[str, bytes]] | None): Optional attachments — same shape as `send_email()`.
 
 #### Behavior
 
-- Uses `send_email()` internally.
-- Sender: `python@wcap.ca`
-- Recipient: `Reporting@wcap.ca`
+- Uses `send_email()` internally, with `body_type="html"`.
+- No hardcoded sender or recipient — both are passed in like `send_email()`.
 
 ## Usage Examples
 
@@ -175,8 +191,20 @@ mail_server.send_email("python@wcap.ca",
            attachments=[("daily_extract.csv", csv_bytes)])
 ```
 
-### Send a reporting email
+### Send an error report
+
 ```
 mail_server = MailServer(<Vault-Internet-API-Key>, <SMTP2GO-Credential-ID>)
-mail_server.email_reporting("Reporting report", "This is a log message")
+
+try:
+    run_pipeline()
+except Exception as exc:
+    mail_server.email_report(
+        sender="python@wcap.ca",
+        recipients=["Reporting@wcap.ca"],
+        subject="Pipeline run failed",
+        project="api-ingest",
+        facts=[("Endpoint", "/invoices"), ("Table", "invoices")],
+        error=exc,
+    )
 ```
