@@ -201,7 +201,7 @@ try:
 except Exception as exc:
     mail_server.email_report(
         sender="python@wcap.ca",
-        recipients=["Reporting@wcap.ca"],
+        recipients=["user@wcap.ca"],
         subject="Pipeline run failed",
         project="api-ingest",
         facts=[("Endpoint", "/invoices"), ("Table", "invoices")],
