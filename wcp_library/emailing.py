@@ -1,12 +1,15 @@
+import html
 import logging
 import re
 import smtplib
+import traceback
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
+from typing import Any
 
 from wcp_library.credentials.internet import InternetCredentialManager
 
@@ -116,19 +119,53 @@ class MailServer:
             len(attachments),
         )
 
-    def email_reporting(self, subject: str, body: str) -> None:
+    def email_report(
+        self,
+        sender: str,
+        recipients: list[str] | str,
+        subject: str,
+        project: str,
+        facts: list[tuple[str, Any]] | None = None,
+        error: BaseException | None = None,
+        cc: list[str] | str | None = None,
+        bcc: list[str] | str | None = None,
+        attachments: list[Path | tuple[str, bytes]] | None = None,
+    ) -> None:
         """
-        Send a plain-text email to the internal Reporting distribution list.
+        Send a styled HTML error-report email.
 
-        :param subject: Email subject line.
-        :param body: Plain-text email body.
+        :param sender: Sending address. Must be in the approved-senders list.
+        :param recipients: One or more primary recipient addresses.
+        :param subject: Report headline, shown in the banner. The sent email's
+            subject line is this text prefixed with ``[python - {project}]``.
+        :param project: Identifies the calling script/system (e.g. ``"api-ingest"``).
+            Shown in the subject prefix, a strip under the banner, and the footer.
+        :param facts: Optional ``(label, value)`` rows rendered as a table.
+            Rows whose value is ``None``, ``""``, or ``[]`` are skipped.
+        :param error: Optional exception. When given, its type name and message
+            are shown as a one-line summary, and its full traceback is rendered
+            below via :func:`traceback.format_exception`.
+        :param cc: Carbon-copy recipients.
+        :param bcc: Blind carbon-copy recipients.
+        :param attachments: Files to attach. Same shape as :meth:`send_email`.
+        :raises ValueError: If *sender* is not in the approved-senders list, or
+            any address fails validation (raised by :meth:`send_email`).
+        :raises FileNotFoundError: If a :class:`pathlib.Path` attachment does not exist.
+        :raises TypeError: If an attachment item has an unexpected type.
         """
-        logger.debug("Sending reporting email — subject: '%s'.", subject)
+        logger.debug(
+            "Sending error report — project: '%s', subject: '%s'.", project, subject,
+        )
+        body = _render_report_html(project, subject, facts, error)
         self.send_email(
-            sender="python@wcap.ca",
-            recipients=["Reporting@wcap.ca"],
-            subject=subject,
+            sender=sender,
+            recipients=recipients,
+            subject=f"[python - {project}] {subject}",
             body=body,
+            body_type="html",
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
         )
 
     # ------------------------------------------------------------------
@@ -271,3 +308,127 @@ def _build_attachment_part(attachment: Path | tuple[str, bytes]) -> MIMEBase:
     encoders.encode_base64(part)
     part.add_header("Content-Disposition", f"attachment; filename={filename}")
     return part
+
+
+def _esc(value: Any) -> str:
+    """
+    Escape a value for safe inclusion in HTML.
+
+    :param value: Any value — coerced to string before escaping.
+    :return: HTML-safe string.
+    """
+    return html.escape(str(value), quote=True)
+
+
+def _facts_table_html(rows: list[tuple[str, Any]]) -> str:
+    """
+    Render a label/value table, skipping rows with an empty value.
+
+    :param rows: Ordered ``(label, value)`` pairs.
+    :return: HTML ``<table>`` markup, or ``""`` if no row survives filtering.
+    """
+    cells: list[str] = []
+    for label, value in rows:
+        if value in (None, "", []):
+            continue
+        cells.append(
+            "<tr>"
+            f"<td style='padding: 4px 12px 4px 0; color: #6b7280; "
+            f"vertical-align: top; white-space: nowrap;'>{_esc(label)}</td>"
+            f"<td style='padding: 4px 0; font-family: monospace;'>{_esc(value)}</td>"
+            "</tr>"
+        )
+    if not cells:
+        return ""
+    return (
+        "<table style='border-collapse: collapse; margin: 8px 0;'>"
+        + "".join(cells)
+        + "</table>"
+    )
+
+
+def _pre_block_html(content: str) -> str:
+    """
+    Render text in a scrollable monospace block.
+
+    :param content: Text to display verbatim (HTML-escaped).
+    :return: HTML ``<pre>`` markup.
+    """
+    return (
+        "<pre style='background: #f3f4f6; border: 1px solid #e5e7eb; "
+        "border-radius: 4px; padding: 12px; font-size: 12px; "
+        "line-height: 1.45; white-space: pre-wrap; word-break: break-word; "
+        f"max-height: 400px; overflow: auto; margin: 8px 0;'>{_esc(content)}</pre>"
+    )
+
+
+def _format_exception(error: BaseException) -> tuple[str, str]:
+    """
+    Derive a one-line summary and the full traceback text from an exception.
+
+    :param error: The caught exception.
+    :return: ``(summary, traceback_text)``.
+    """
+    summary = f"{type(error).__name__}: {error}"
+    traceback_text = "".join(traceback.format_exception(error))
+    return summary, traceback_text
+
+
+def _render_report_html(
+    project: str, subject: str, facts: list[tuple[str, Any]] | None,
+    error: BaseException | None,
+) -> str:
+    """
+    Compose the full HTML document for an error-report email.
+
+    :param project: Identifies the calling script/system.
+    :param subject: Report headline, shown in the banner (rendered escaped).
+    :param facts: Optional label/value rows for the facts table.
+    :param error: Optional exception to render as a summary + traceback.
+    :return: Full ``<html>`` document as a string.
+    """
+    sections: list[str] = []
+
+    if facts:
+        table = _facts_table_html(facts)
+        if table:
+            sections.append(table)
+
+    if error is not None:
+        summary, traceback_text = _format_exception(error)
+        sections.append(
+            "<div style='margin-top: 16px; font-weight: 600; "
+            "color: #374151;'>Error</div>"
+        )
+        sections.append(_pre_block_html(summary))
+        sections.append(
+            "<div style='margin-top: 16px; font-weight: 600; "
+            "color: #374151;'>Traceback</div>"
+        )
+        sections.append(_pre_block_html(traceback_text))
+
+    body_sections = "".join(sections)
+
+    return (
+        "<html><body style='margin: 0; padding: 0; background: #f9fafb;'>"
+        "<div style=\"font-family: -apple-system, BlinkMacSystemFont, "
+        "'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; "
+        "font-size: 14px; line-height: 1.5; max-width: 720px; margin: 0 auto; "
+        "background: #ffffff; padding: 0 0 24px 0;\">"
+        "<div style='background: #b91c1c; color: #ffffff; "
+        "padding: 16px 24px; font-size: 16px; font-weight: 600;'>"
+        f"{_esc(subject)}"
+        "</div>"
+        "<div style='background: #f3f4f6; padding: 10px 24px; "
+        "font-size: 13px; color: #374151; "
+        "border-bottom: 1px solid #e5e7eb;'>"
+        f"<span style='color: #6b7280;'>Project:</span> <strong>{_esc(project)}</strong>"
+        "</div>"
+        f"<div style='padding: 20px 24px;'>{body_sections}</div>"
+        "<div style='padding: 12px 24px; color: #9ca3af; "
+        "font-size: 12px; border-top: 1px solid #e5e7eb;'>"
+        f"python · project: {_esc(project)}"
+        "</div>"
+        "</div>"
+        "</body></html>"
+    )

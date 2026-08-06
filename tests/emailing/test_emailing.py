@@ -235,22 +235,161 @@ class TestSendEmail:
 
 
 # ---------------------------------------------------------------------------
-# MailServer.email_reporting
+# MailServer.email_report
 # ---------------------------------------------------------------------------
 
 
-class TestEmailReporting:
-    def test_delegates_to_send_email(self) -> None:
+class TestEmailReport:
+    def test_facts_table_rendered_when_given(self) -> None:
         server = _make_mail_server()
 
         with patch.object(type(server), "send_email") as mock_send:
-            server.email_reporting("subj", "body")
-            mock_send.assert_called_once()
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                facts=[("Endpoint", "/invoices"), ("Table", "invoices")],
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "Endpoint" in body
+            assert "/invoices" in body
+            assert "Table" in body
+            assert "invoices" in body
+
+    def test_facts_with_empty_values_skipped(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                facts=[
+                    ("SkippedNone", None),
+                    ("SkippedEmptyStr", ""),
+                    ("SkippedEmptyList", []),
+                    ("KeptLabel", "kept-value"),
+                ],
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "KeptLabel" in body
+            assert "kept-value" in body
+            assert "SkippedNone" not in body
+            assert "SkippedEmptyStr" not in body
+            assert "SkippedEmptyList" not in body
+
+    def test_no_facts_table_when_facts_omitted(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "<table" not in body
+
+    def test_no_facts_table_when_all_rows_skipped(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                facts=[("A", None), ("B", ""), ("C", [])],
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "<table" not in body
+
+    def test_error_and_traceback_rendered_when_given(self) -> None:
+        server = _make_mail_server()
+
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            error = exc
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                error=error,
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "ValueError: boom" in body
+            assert "Traceback (most recent call last)" in body
+
+    def test_no_error_section_when_error_omitted(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+            )
+            body = mock_send.call_args.kwargs["body"]
+            assert "Traceback" not in body
+
+    def test_subject_prefixed_with_project(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+            )
+            assert (
+                mock_send.call_args.kwargs["subject"]
+                == "[python - api-ingest] Something broke"
+            )
+
+    def test_body_type_is_html(self) -> None:
+        server = _make_mail_server()
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="python@wcap.ca",
+                recipients=["to@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+            )
+            assert mock_send.call_args.kwargs["body_type"] == "html"
+
+    def test_sender_recipients_cc_bcc_attachments_forwarded(
+        self, tmp_path: Path
+    ) -> None:
+        server = _make_mail_server()
+        attachment = tmp_path / "note.txt"
+        attachment.write_text("hello")
+
+        with patch.object(type(server), "send_email") as mock_send:
+            server.email_report(
+                sender="workflow@wcap.ca",
+                recipients=["to@example.com", "second@example.com"],
+                subject="Something broke",
+                project="api-ingest",
+                cc="cc@example.com",
+                bcc=["bcc@example.com"],
+                attachments=[attachment],
+            )
             kwargs = mock_send.call_args.kwargs
-            assert kwargs["sender"] == "python@wcap.ca"
-            assert kwargs["recipients"] == ["Reporting@wcap.ca"]
-            assert kwargs["subject"] == "subj"
-            assert kwargs["body"] == "body"
+            assert kwargs["sender"] == "workflow@wcap.ca"
+            assert kwargs["recipients"] == ["to@example.com", "second@example.com"]
+            assert kwargs["cc"] == "cc@example.com"
+            assert kwargs["bcc"] == ["bcc@example.com"]
+            assert kwargs["attachments"] == [attachment]
 
 
 # ---------------------------------------------------------------------------
