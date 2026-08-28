@@ -569,6 +569,7 @@ def get_list_items(
     list_id: str,
     odata_filter: str | None = None,
     *,
+    expand: str | None = None,
     page_size: int | None = None,
 ) -> list[dict]:
     """Retrieves the items from a SharePoint list using the Microsoft Graph API.
@@ -580,14 +581,25 @@ def get_list_items(
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param odata_filter: An optional OData filter string to filter the list items.
+    :param expand: Optional ``$expand`` value, e.g. ``"fields"`` to include
+        column values in each returned item, or ``"fields(select=Title,Status)"``
+        to limit which columns come back. Without this, returned items carry
+        only base metadata (id, webUrl, timestamps) and no field values.
     :param page_size: Optional ``$top`` override.
     :return: A list of SharePoint list items as JSON objects across all pages.
     :raises requests.RequestException: If any paged request fails (including
         after retries are exhausted).
     """
     url = f"{_GRAPH_ROOT}/sites/{site_id}/lists/{list_id}/items"
+
+    params = []
     if odata_filter:
-        url += f"?$filter={odata_filter}"
+        params.append(f"$filter={odata_filter}")
+    if expand:
+        params.append(f"$expand={expand}")
+    if params:
+        url += "?" + "&".join(params)
+
     return _iter_pages(url, headers, page_size=page_size)
 
 
