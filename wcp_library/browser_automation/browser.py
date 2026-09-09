@@ -37,6 +37,7 @@ with Browser(Browser.Firefox, browser_options=browser_options, sharepoint_config
 
 import inspect
 import logging
+import re
 import time
 from typing import Any
 
@@ -45,15 +46,20 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from yarl import URL
-
 from tenacity import retry as tenacity_retry
+from yarl import URL
 
 from wcp_library.browser_automation.interactions import (UIInteractions,
                                                          WEInteractions)
 from wcp_library.retry import make_generic_retry
 
 logger = logging.getLogger(__name__)
+
+
+_SERVER_ERROR_PATTERN = re.compile(
+    r"\b5\d{2}\b.{0,40}?\b(error|gateway|unavailable|timeout)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class BaseSelenium(UIInteractions, WEInteractions):
@@ -116,7 +122,9 @@ class BaseSelenium(UIInteractions, WEInteractions):
         # driver is injected in __enter__ once create_driver() succeeds.
         super().__init__(driver=None, sharepoint_config=sharepoint_config)
 
-    @tenacity_retry(**make_generic_retry(exceptions=(selenium_exceptions.WebDriverException,)))
+    @tenacity_retry(
+        **make_generic_retry(exceptions=(selenium_exceptions.WebDriverException,))
+    )
     def __enter__(self) -> "BaseSelenium":
         self.driver = self.create_driver()
         return self
@@ -278,6 +286,32 @@ class BaseSelenium(UIInteractions, WEInteractions):
         if self.driver:
             return self.driver.title
         raise RuntimeError("WebDriver is not initialized.")
+
+    def is_server_error_page(self) -> bool:
+        """
+        Check whether the current page is a 5xx server/gateway error page.
+
+        Looks for common patterns such as '502 Bad Gateway', '503 Service
+        Unavailable', '504 Gateway Timeout', or '500 Internal Server Error'
+        in the page title and page source.
+
+        Returns
+        -------
+        bool
+            True if a 5xx error pattern is found. False otherwise,
+            including when the page cannot be read at all.
+        """
+        if self.driver:
+
+            try:
+                title = self.driver.title or ""
+                page_source = self.driver.page_source or ""
+            except Exception:
+                return False
+
+            haystack = f"{title}\n{page_source}"
+            return bool(_SERVER_ERROR_PATTERN.search(haystack))
+        return False
 
     # ------------------------------------------------------------------
     # Window management
