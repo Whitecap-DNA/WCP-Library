@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class MailServer:
     def __init__(self, internet_password_key: str, smtp2go_credential_id: int) -> None:
-        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
+        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca", "dataintegrationssupport@wcap.ca"]
         logger.debug(
             "Fetching SMTP2GO credentials from vault (entry ID: %d).",
             smtp2go_credential_id,
