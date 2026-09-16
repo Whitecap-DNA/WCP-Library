@@ -49,13 +49,9 @@ class Interactions:
     Provides shared utilities for screenshots and wait-time resolution used
     by both ``UIInteractions`` and ``WEInteractions``.
 
-    Parameters
-    ----------
-    driver : selenium.webdriver.remote.webdriver.WebDriver
-        An initialised Selenium WebDriver instance.
-    sharepoint_config : dict[str, str] or None, optional
-        Configuration for uploading error screenshots to SharePoint.
-        Expected keys: ``headers``, ``site_id``, ``file_path``.
+    :param driver: An initialised Selenium WebDriver instance.
+    :param sharepoint_config: Configuration for uploading error screenshots to
+        SharePoint. Expected keys: ``headers``, ``site_id``, ``file_path``.
     """
 
     def __init__(
@@ -74,15 +70,8 @@ class Interactions:
         """
         Save a screenshot of the current page.
 
-        Parameters
-        ----------
-        file_path : Path
-            Destination path for the screenshot file.
-
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
+        :param file_path: Destination path for the screenshot file.
+        :raises RuntimeError: If the WebDriver is not initialised.
         """
         if self.driver:
             self.driver.save_screenshot(file_path)
@@ -129,15 +118,8 @@ class Interactions:
         implicit timeout from ``browser_options`` is used (converted from
         milliseconds to seconds).
 
-        Parameters
-        ----------
-        wait_time : float or None, optional
-            Explicit wait time in seconds. Defaults to ``0``.
-
-        Returns
-        -------
-        float
-            Wait time in seconds.
+        :param wait_time: Explicit wait time in seconds. Defaults to ``0``.
+        :return: Wait time in seconds.
         """
         if wait_time:
             return int(wait_time)
@@ -182,12 +164,9 @@ class UIInteractions(Interactions):
     alias (e.g. ``'xpath'``, ``'id'``, ``'css'``) and resolve the target
     element via ``WebDriverWait``.
 
-    Parameters
-    ----------
-    driver : selenium.webdriver.remote.webdriver.WebDriver
-        An initialised Selenium WebDriver instance.
-    sharepoint_config : dict[str, str] or None, optional
-        Configuration for uploading error screenshots to SharePoint.
+    :param driver: An initialised Selenium WebDriver instance.
+    :param sharepoint_config: Configuration for uploading error screenshots to
+        SharePoint.
     """
 
     # ------------------------------------------------------------------
@@ -199,17 +178,10 @@ class UIInteractions(Interactions):
         """
         Resolve a locator alias to a Selenium ``By`` constant.
 
-        Parameters
-        ----------
-        locator : str or None
-            One of ``'id'``, ``'name'``, ``'class'``, ``'tag'``, ``'xpath'``,
-            ``'link_text'``, ``'partial_link_text'``, or ``None`` / any other
-            value for CSS selector (default).
-
-        Returns
-        -------
-        str
-            The corresponding ``By`` constant.
+        :param locator: One of ``'id'``, ``'name'``, ``'class'``, ``'tag'``,
+            ``'xpath'``, ``'link_text'``, ``'partial_link_text'``, or ``None`` / any
+            other value for CSS selector (default).
+        :return: The corresponding ``By`` constant.
         """
         return _LOCATOR_MAP.get(locator, By.CSS_SELECTOR)
 
@@ -218,17 +190,10 @@ class UIInteractions(Interactions):
         """
         Resolve a single-element expected-condition alias.
 
-        Parameters
-        ----------
-        expected_condition : str or None
-            One of ``'present'``, ``'visible'``, ``'selected'``,
-            ``'frame_available'``, or ``None`` / any other value for
-            *clickable* (default).
-
-        Returns
-        -------
-        callable
-            A Selenium expected-condition class.
+        :param expected_condition: One of ``'present'``, ``'visible'``, ``'selected'``,
+            ``'frame_available'``, or ``None`` / any other value for *clickable*
+            (default).
+        :return: A Selenium expected-condition class.
         """
         return _SINGLE_EC_MAP.get(expected_condition, EC.element_to_be_clickable)
 
@@ -237,15 +202,9 @@ class UIInteractions(Interactions):
         """
         Resolve a multi-element expected-condition alias.
 
-        Parameters
-        ----------
-        expected_condition : str or None
-            ``'present'`` for presence, anything else for visibility (default).
-
-        Returns
-        -------
-        callable
-            A Selenium expected-condition class for multiple elements.
+        :param expected_condition: ``'present'`` for presence, anything else for
+            visibility (default).
+        :return: A Selenium expected-condition class for multiple elements.
         """
         return _MULTIPLE_EC_MAP.get(
             expected_condition, EC.visibility_of_all_elements_located
@@ -265,33 +224,18 @@ class UIInteractions(Interactions):
         """
         Locate a single element.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy. One of ``'css'`` (default), ``'id'``,
-            ``'name'``, ``'class'``, ``'tag'``, ``'xpath'``,
-            ``'link_text'``, ``'partial_link_text'``.
-        expected_condition : str or None, optional
-            Wait condition. One of ``'clickable'`` (default), ``'present'``,
-            ``'visible'``, ``'selected'``, ``'frame_available'``.
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        WebElement
-            The located element.
-
-        Raises
-        ------
-        TimeoutException
-            If the element is not found within *wait_time*.
-        NoSuchElementException
-            If the element does not exist.
-        WebDriverException
-            On any other WebDriver error (an error screenshot is taken).
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy. One of ``'css'`` (default), ``'id'``,
+            ``'name'``, ``'class'``, ``'tag'``, ``'xpath'``, ``'link_text'``,
+            ``'partial_link_text'``.
+        :param expected_condition: Wait condition. One of ``'clickable'`` (default),
+            ``'present'``, ``'visible'``, ``'selected'``, ``'frame_available'``.
+        :param wait_time: Seconds to wait for the condition.
+        :return: The located element.
+        :raises TimeoutException: If the element is not found within *wait_time*.
+        :raises NoSuchElementException: If the element does not exist.
+        :raises WebDriverException: On any other WebDriver error (an error screenshot is
+            taken).
         """
         try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
@@ -320,28 +264,15 @@ class UIInteractions(Interactions):
         """
         Locate multiple elements matching the selector.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the elements.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition. ``'present'`` or ``'visible'`` (default).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        list of WebElement
-            The located elements.
-
-        Raises
-        ------
-        TimeoutException
-            If no elements are found within *wait_time*.
-        WebDriverException
-            On any other WebDriver error (an error screenshot is taken).
+        :param element_value: Selector or identifier for the elements.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition. ``'present'`` or ``'visible'``
+            (default).
+        :param wait_time: Seconds to wait for the condition.
+        :return: The located elements.
+        :raises TimeoutException: If no elements are found within *wait_time*.
+        :raises WebDriverException: On any other WebDriver error (an error screenshot is
+            taken).
         """
         try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
@@ -360,26 +291,13 @@ class UIInteractions(Interactions):
         """
         Return the first available element from a list of candidates.
 
-        Parameters
-        ----------
-        elements : list of dict
-            Each dictionary must contain an ``'element'`` key and may
+        :param elements: Each dictionary must contain an ``'element'`` key and may
             optionally contain ``'locator'`` (default ``'css'``) and
             ``'expected_condition'`` (default ``'clickable'``).
-        wait_time : float or None, optional
-            Total seconds to keep polling across all candidates.
-
-        Returns
-        -------
-        WebElement
-            The first element that satisfies its expected condition.
-
-        Raises
-        ------
-        ValueError
-            If any dictionary is missing the ``'element'`` key.
-        TimeoutException
-            If no element becomes available within *wait_time*.
+        :param wait_time: Total seconds to keep polling across all candidates.
+        :return: The first element that satisfies its expected condition.
+        :raises ValueError: If any dictionary is missing the ``'element'`` key.
+        :raises TimeoutException: If no element becomes available within *wait_time*.
         """
         normalized: list[tuple[str, str, str]] = []
 
@@ -421,21 +339,11 @@ class UIInteractions(Interactions):
         """
         Get the visible text of an element.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        str
-            The element's visible text.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
+        :return: The element's visible text.
         """
         return self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -451,21 +359,11 @@ class UIInteractions(Interactions):
         """
         Get the ``value`` attribute of an element.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        str
-            The element's ``value`` attribute.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
+        :return: The element's ``value`` attribute.
         """
         return self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -481,21 +379,11 @@ class UIInteractions(Interactions):
         """
         Parse an HTML ``<table>`` element into a DataFrame.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the table element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        pandas.DataFrame
-            The table data.
+        :param element_value: Selector or identifier for the table element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
+        :return: The table data.
         """
         element = self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -516,16 +404,10 @@ class UIInteractions(Interactions):
         """
         Click an element.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
         """
         self.get_element(element_value, locator, expected_condition, wait_time).click()
 
@@ -540,18 +422,11 @@ class UIInteractions(Interactions):
         """
         Clear and populate a text field.
 
-        Parameters
-        ----------
-        text : str
-            The text to enter.
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
+        :param text: The text to enter.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
         """
         element = self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -573,18 +448,11 @@ class UIInteractions(Interactions):
         """
         Set a checkbox to the desired state.
 
-        Parameters
-        ----------
-        state : bool
-            ``True`` to check, ``False`` to uncheck.
-        element_value : str
-            Selector or identifier for the checkbox element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
+        :param state: ``True`` to check, ``False`` to uncheck.
+        :param element_value: Selector or identifier for the checkbox element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
         """
         element = self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -604,22 +472,14 @@ class UIInteractions(Interactions):
         """
         Choose an option from a ``<select>`` dropdown.
 
-        Parameters
-        ----------
-        option : str
-            The option to select (text, index, or value depending on
+        :param option: The option to select (text, index, or value depending on
             *select_type*).
-        element_value : str
-            Selector or identifier for the ``<select>`` element.
-        select_type : str or None, optional
-            Selection strategy: ``'value'`` (default), ``'index'``, or
+        :param element_value: Selector or identifier for the ``<select>`` element.
+        :param select_type: Selection strategy: ``'value'`` (default), ``'index'``, or
             ``'visible_text'``.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
         """
         element = self.get_element(
             element_value, locator, expected_condition, wait_time
@@ -647,21 +507,11 @@ class UIInteractions(Interactions):
         """
         Check whether an element is present on the page.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        WebElement or False
-            The element if found, otherwise ``False``.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the condition.
+        :return: The element if found, otherwise ``False``.
         """
         try:
             return WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
@@ -682,21 +532,11 @@ class UIInteractions(Interactions):
         """
         Block until an element meets the expected condition.
 
-        Parameters
-        ----------
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        expected_condition : str or None, optional
-            Wait condition (see ``get_element``).
-        wait_time : float or None, optional
-            Seconds to wait for the element.
-
-        Returns
-        -------
-        WebElement
-            The located element.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param expected_condition: Wait condition (see ``get_element``).
+        :param wait_time: Seconds to wait for the element.
+        :return: The located element.
         """
         return self.get_element(
             element_value,
@@ -716,24 +556,13 @@ class UIInteractions(Interactions):
         """
         Check whether *text* appears within an element.
 
-        Parameters
-        ----------
-        text : str
-            The text to search for.
-        element_value : str
-            Selector or identifier for the element.
-        locator : str or None, optional
-            Locator strategy (see ``get_element``).
-        text_location : str or None, optional
-            Where to look: ``'anywhere'`` (default), ``'attribute'``, or
-            ``'value'``.
-        wait_time : float or None, optional
-            Seconds to wait for the condition.
-
-        Returns
-        -------
-        WebElement or False
-            The element if the text is found, otherwise ``False``.
+        :param text: The text to search for.
+        :param element_value: Selector or identifier for the element.
+        :param locator: Locator strategy (see ``get_element``).
+        :param text_location: Where to look: ``'anywhere'`` (default), ``'attribute'``,
+            or ``'value'``.
+        :param wait_time: Seconds to wait for the condition.
+        :return: The element if the text is found, otherwise ``False``.
         """
         match text_location:
             case "attribute":
@@ -771,12 +600,9 @@ class WEInteractions(Interactions):
     string, which is useful when elements have already been retrieved or
     when working inside Shadow DOMs.
 
-    Parameters
-    ----------
-    driver : selenium.webdriver.remote.webdriver.WebDriver
-        An initialised Selenium WebDriver instance.
-    sharepoint_config : dict[str, str] or None, optional
-        Configuration for uploading error screenshots to SharePoint.
+    :param driver: An initialised Selenium WebDriver instance.
+    :param sharepoint_config: Configuration for uploading error screenshots to
+        SharePoint.
     """
 
     # ------------------------------------------------------------------
@@ -788,17 +614,10 @@ class WEInteractions(Interactions):
         """
         Resolve a WebElement-based expected-condition alias.
 
-        Parameters
-        ----------
-        expected_condition : str or None, optional
-            One of ``'visible'``, ``'invisible'``, ``'selected'``,
-            ``'staleness'``, or ``None`` / any other value for
+        :param expected_condition: One of ``'visible'``, ``'invisible'``,
+            ``'selected'``, ``'staleness'``, or ``None`` / any other value for
             *clickable* (default).
-
-        Returns
-        -------
-        callable
-            A Selenium expected-condition class.
+        :return: A Selenium expected-condition class.
         """
         return _WE_EC_MAP.get(expected_condition, EC.element_to_be_clickable)
 
@@ -815,20 +634,11 @@ class WEInteractions(Interactions):
         """
         Block until a WebElement meets the expected condition.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The element to wait on.
-        expected_condition : str or None, optional
-            Wait condition. One of ``'clickable'`` (default), ``'visible'``,
-            ``'invisible'``, ``'selected'``, ``'staleness'``.
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        WebElement
-            The same element once the condition is met.
+        :param web_element: The element to wait on.
+        :param expected_condition: Wait condition. One of ``'clickable'`` (default),
+            ``'visible'``, ``'invisible'``, ``'selected'``, ``'staleness'``.
+        :param wait_time: Seconds to wait.
+        :return: The same element once the condition is met.
         """
         condition = self._get_expected_condition_we(expected_condition)
         WebDriverWait(self.driver, self._get_wait_time(wait_time)).until(
@@ -849,19 +659,10 @@ class WEInteractions(Interactions):
         """
         Get the visible text of a WebElement.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The target element.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        str
-            The element's visible text.
+        :param web_element: The target element.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
+        :return: The element's visible text.
         """
         return self.wait_for_element_we(web_element, expected_condition, wait_time).text
 
@@ -874,19 +675,10 @@ class WEInteractions(Interactions):
         """
         Get the ``value`` attribute of a WebElement.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The target element.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        str
-            The element's ``value`` attribute.
+        :param web_element: The target element.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
+        :return: The element's ``value`` attribute.
         """
         return self.wait_for_element_we(
             web_element, expected_condition, wait_time
@@ -901,19 +693,10 @@ class WEInteractions(Interactions):
         """
         Parse an HTML ``<table>`` WebElement into a DataFrame.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The table element.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        pandas.DataFrame
-            The table data.
+        :param web_element: The table element.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
+        :return: The table data.
         """
         element = self.wait_for_element_we(web_element, expected_condition, wait_time)
         return pd.read_html(StringIO(element.get_attribute("outerHTML")))[0]
@@ -931,14 +714,9 @@ class WEInteractions(Interactions):
         """
         Click a WebElement.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The element to click.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
+        :param web_element: The element to click.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
         """
         self.wait_for_element_we(web_element, expected_condition, wait_time).click()
 
@@ -952,16 +730,10 @@ class WEInteractions(Interactions):
         """
         Clear and populate a text field via WebElement.
 
-        Parameters
-        ----------
-        text : str
-            The text to enter.
-        web_element : WebElement
-            The input element.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
+        :param text: The text to enter.
+        :param web_element: The input element.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
         """
         element = self.wait_for_element_we(web_element, expected_condition, wait_time)
         element.clear()
@@ -977,16 +749,10 @@ class WEInteractions(Interactions):
         """
         Set a checkbox to the desired state via WebElement.
 
-        Parameters
-        ----------
-        state : bool
-            ``True`` to check, ``False`` to uncheck.
-        web_element : WebElement
-            The checkbox element.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
+        :param state: ``True`` to check, ``False`` to uncheck.
+        :param web_element: The checkbox element.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
         """
         element = self.wait_for_element_we(web_element, expected_condition, wait_time)
         if element.is_selected() != state:
@@ -1003,20 +769,13 @@ class WEInteractions(Interactions):
         """
         Choose an option from a ``<select>`` dropdown via WebElement.
 
-        Parameters
-        ----------
-        option : str
-            The option to select (text, index, or value depending on
+        :param option: The option to select (text, index, or value depending on
             *select_type*).
-        web_element : WebElement
-            The ``<select>`` element.
-        select_type : str or None, optional
-            Selection strategy: ``'value'`` (default), ``'index'``, or
+        :param web_element: The ``<select>`` element.
+        :param select_type: Selection strategy: ``'value'`` (default), ``'index'``, or
             ``'visible_text'``.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
         """
         element = self.wait_for_element_we(web_element, expected_condition, wait_time)
         select = Select(element)
@@ -1041,19 +800,10 @@ class WEInteractions(Interactions):
         """
         Check whether a WebElement is present and meets a condition.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The element to check.
-        expected_condition : str or None, optional
-            Wait condition (see ``wait_for_element_we``).
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        WebElement or False
-            The element if found, otherwise ``False``.
+        :param web_element: The element to check.
+        :param expected_condition: Wait condition (see ``wait_for_element_we``).
+        :param wait_time: Seconds to wait.
+        :return: The element if found, otherwise ``False``.
         """
         try:
             return self.wait_for_element_we(
@@ -1074,22 +824,12 @@ class WEInteractions(Interactions):
         """
         Check whether *text* appears within a WebElement.
 
-        Parameters
-        ----------
-        web_element : WebElement
-            The element to inspect.
-        text : str
-            The text to search for.
-        text_location : str or None, optional
-            Where to look: ``'anywhere'`` (default), ``'attribute'``, or
-            ``'value'``.
-        wait_time : float or None, optional
-            Seconds to wait.
-
-        Returns
-        -------
-        WebElement or False
-            The element if the text is found, otherwise ``False``.
+        :param web_element: The element to inspect.
+        :param text: The text to search for.
+        :param text_location: Where to look: ``'anywhere'`` (default), ``'attribute'``,
+            or ``'value'``.
+        :param wait_time: Seconds to wait.
+        :return: The element if the text is found, otherwise ``False``.
         """
         match text_location:
             case "attribute":

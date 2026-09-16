@@ -4,12 +4,14 @@ This library provides a structured and extensible framework for interacting with
 
 ## Authentication (`__init__`)
 
-This module defines the foundational configuration and authentication for the Microsoft Graph API. It provides a shared `get_headers` function that acquires an OAuth2 Bearer token using client credentials, along with module-level constants for request timeouts and subscription renewal thresholds.
+This module defines the foundational configuration and authentication for the Microsoft Graph API. It provides a shared `get_headers` function that acquires an OAuth2 Bearer token using client credentials, a `get_headers_from_vault` convenience wrapper for app registrations whose credentials live in the Password Vault, along with module-level constants for request timeouts and subscription renewal thresholds.
 
 ### Key Features
 
 - OAuth2 client credentials flow for app-only authentication.
+- Vault-backed authentication — `get_headers_from_vault` needs only the vault API key and the credential ID, and resolves the app id, secret, and tenant id for you.
 - Centralized `Authorization` header generation for all Graph API calls.
+- Token acquisition failures raise `GraphAuthError` naming the Azure AD error code and description, instead of handing back a header containing `None`.
 - Configurable request timeout and subscription renewal threshold.
 
 ## SharePoint
@@ -24,9 +26,10 @@ This module provides a comprehensive suite of functions for interacting with Sha
 
 - Full CRUD operations for SharePoint files and list items.
 - Drive-scoped file operations — every file helper accepts an optional `drive_id` keyword argument to target a specific document library (e.g. a company-specific drive on a site that hosts multiple libraries). When omitted, the site's default drive is used.
+- Two addressing modes for file content — `get_file_content` takes either a site plus path (SharePoint) or a drive plus item ID (OneDrive), so ID-based reads skip path resolution.
 - File operations support conflict behavior configuration (`rename`, `replace`, `fail`).
 - Flexible content input for uploads (bytes, bytearray, memoryview, or base64-encoded strings).
-- OData filter support for list item queries.
+- OData filter support for list item queries, plus `$expand` support to pull column values (or a chosen subset of them) back with each item.
 - Automatic pagination of `@odata.nextLink` in `list_folder`, `get_drives`, `get_lists`, and `get_list_items` — results are returned complete rather than silently truncated to the first page. An optional `page_size` keyword argument tunes the `$top` value on the initial request.
 - All exceptions are logged with contextual information to aid debugging.
 
@@ -53,6 +56,9 @@ This module provides complete lifecycle management for Microsoft Graph webhook s
 - Automatic expiration calculation based on resource type and Microsoft's documented limits.
 - Resource type inference from subscription resource strings.
 - Full lifecycle support: create, get, renew, reauthorize, recreate, delete.
+- Bulk proactive renewal via `renew_expiring_subscriptions`, designed to run on a schedule; one failing subscription does not abort the sweep.
+- Optional encrypted resource data in notifications (`include_resource_data`), for app-only subscriptions on resources such as Teams chat messages.
+- Automatic pagination of `@odata.nextLink` in `list_subscriptions`, with an optional `page_size` to tune `$top`.
 - Notification URL update support for migrating endpoints.
 - Separate notification and lifecycle notification URL configuration.
 
@@ -73,7 +79,7 @@ Policy defined in `wcp_library.retry.graph_retry_kwargs`.
 
 ## Authentication
 
-All modules require an `Authorization` header obtained through the `get_headers` function.
+All modules require an `Authorization` header. Obtain one with `get_headers` (when you already hold the app registration's credentials) or `get_headers_from_vault` (when they live in the Password Vault).
 
 ```python
 from wcp_library.graph import get_headers
@@ -84,6 +90,18 @@ headers = get_headers(
     tenant_id="<tenant-id>",
 )
 ```
+
+### From the Password Vault
+
+`get_headers_from_vault` fetches the app registration's entry through an `InternetCredentialManager`, derives the tenant ID from the entry's `URL` field, and delegates to `get_headers`. Use it to avoid plumbing the app id, secret, and tenant id through your own code.
+
+```python
+from wcp_library.graph import get_headers_from_vault
+
+headers = get_headers_from_vault("<vault-internet-api-key>", <credential-id>)
+```
+
+The vault entry is expected to carry the app (client) ID in `UserName`, the client secret in `Password`, and a `URL` whose final path segment is the tenant ID.
 
 ## SharePoint Example
 
@@ -100,8 +118,12 @@ site_id = site["id"]
 # Upload a file to the site's default drive
 upload_file(headers, site_id, "/Shared Documents/Reports", "report.xlsx", file_bytes)
 
-# Query list items with OData filter
-items = get_list_items(headers, site_id, list_id, odata_filter="fields/Status eq 'Active'")
+# Query list items with OData filter, expanding column values
+items = get_list_items(
+    headers, site_id, list_id,
+    odata_filter="fields/Status eq 'Active'",
+    expand="fields",
+)
 ```
 
 ### Targeting a non-default drive
@@ -220,17 +242,47 @@ Maximum subscription lifetimes as defined by Microsoft Graph, used by `_calculat
 
 `get_headers(app_id: str, app_secret: str, tenant_id: str) -> dict`
 
-Acquires an OAuth2 Bearer token using client credentials and returns an `Authorization` header dictionary.
+Acquires an OAuth2 Bearer token using client credentials and returns an `Authorization` header dictionary. The token is scoped to `https://graph.microsoft.com/.default`.
+
+Raises `GraphAuthError` if the token request fails at the network level, if the token endpoint returns a non-JSON body, or if the response carries no `access_token` — in the last case the message includes the Azure AD `error` code and `error_description`.
 
 ```python
 headers = get_headers(app_id, app_secret, tenant_id)
+```
+
+### get_headers_from_vault
+
+`get_headers_from_vault(api_key: str, credential_id: int | str) -> dict`
+
+Same result as `get_headers`, for app registrations stored in Password State. Fetches the credential through `InternetCredentialManager.get_credential_from_id`, takes the tenant ID from the last path segment of the entry's `URL`, and calls `get_headers` with `UserName` as the app id and `Password` as the secret.
+
+Raises `GraphAuthError` if the credential cannot be retrieved from the vault, and propagates the `GraphAuthError` from `get_headers` if the token request itself fails.
+
+```python
+headers = get_headers_from_vault(vault_internet_api_key, credential_id)
+```
+
+### GraphAuthError
+
+`class GraphAuthError(Exception)`
+
+Raised when Microsoft Graph token acquisition fails, by either `get_headers` or `get_headers_from_vault`. Distinct from the `requests.RequestException` family raised by the Graph data helpers, so authentication problems can be separated from call failures.
+
+```python
+from wcp_library.graph import GraphAuthError, get_headers_from_vault
+
+try:
+    headers = get_headers_from_vault(vault_internet_api_key, credential_id)
+except GraphAuthError as exc:
+    logger.error("Could not authenticate against Graph: %s", exc)
+    raise
 ```
 
 ## SharePoint — Site Functions
 
 ### get_site_metadata
 
-`get_site_metadata(headers: dict, site_home_url: str) -> dict | None`
+`get_site_metadata(headers: dict, site_home_url: str) -> dict`
 
 Retrieve site metadata from a SharePoint site URL. The URL must be the site home page.
 
@@ -240,7 +292,7 @@ get_site_metadata(headers, "https://contoso.sharepoint.com/sites/MySite")
 
 ### get_drives
 
-`get_drives(headers: dict, site_id: str, *, page_size: int | None = None) -> list[dict] | None`
+`get_drives(headers: dict, site_id: str, *, page_size: int | None = None) -> list[dict]`
 
 List document libraries (drives) on a SharePoint site. Follows `@odata.nextLink` across all pages. Raises `requests.RequestException` on HTTP errors or exhausted retries. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
@@ -266,7 +318,7 @@ All file helpers accept an optional keyword-only `drive_id` argument. When omitt
 
 ### list_folder
 
-`list_folder(headers: dict, site_id: str, folder_path: str, *, drive_id: str | None = None, page_size: int | None = None) -> list | None`
+`list_folder(headers: dict, site_id: str, folder_path: str, *, drive_id: str | None = None, page_size: int | None = None) -> list`
 
 List the immediate children of a folder. Follows `@odata.nextLink` across all pages — results are not silently truncated at the first page. Pass `folder_path="/"` (or `""`) to list the root of the drive.
 
@@ -283,7 +335,7 @@ files = list_folder(headers, site_id, "/", drive_id=drive_id)
 
 ### get_file_metadata
 
-`get_file_metadata(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> dict | None`
+`get_file_metadata(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> dict`
 
 Retrieve the metadata of a file on a SharePoint site.
 
@@ -294,27 +346,31 @@ get_file_metadata(headers, site_id, "/2026/04/20/invoice.pdf", drive_id=drive_id
 
 ### get_file_content
 
-`get_file_content(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> bytes | None`
+`get_file_content(headers: dict, site_id: str | None, file_path: str | None, *, drive_id: str | None = None, item_id: str | None = None) -> bytes | None`
 
-Retrieve the raw content of a file on a SharePoint site.
+Retrieve the raw content of a file. Two addressing modes are supported:
+
+- **Path-based** (SharePoint) — pass `site_id` and `file_path`. An optional `drive_id` targets a specific document library; omitting it uses the site's default drive.
+- **ID-based** (OneDrive) — pass `drive_id` and `item_id`. Bypasses path resolution entirely.
+
+Raises `ValueError` when neither mode is fully satisfied: `item_id` given without `drive_id`, or `site_id` and `file_path` not both present. Raises `requests.RequestException` on HTTP errors or exhausted retries.
 
 ```python
+# Path-based, site's default drive
 get_file_content(headers, site_id, "/Shared Documents/My Folder/file.txt")
+
+# Path-based, explicit document library
+get_file_content(headers, site_id, "/2026/04/20/invoice.pdf", drive_id=drive_id)
+
+# ID-based, when the drive and item IDs are already known
+get_file_content(headers, None, None, drive_id=drive_id, item_id=item_id)
 ```
 
-### get_file_content_by_id
-
-`get_file_content_by_id(headers: dict, drive_id: str, item_id: str) -> bytes | None`
-
-Retrieve file content when the drive ID and item ID are known. Bypasses path resolution.
-
-```python
-get_file_content_by_id(headers, drive_id, item_id)
-```
+> **Note:** the former `get_file_content_by_id` helper was merged into `get_file_content`. Pass `drive_id` and `item_id` instead.
 
 ### upload_file
 
-`upload_file(headers: dict, site_id: str, file_path: str, filename: str, content: bytes | bytearray | memoryview | str, conflict_behavior: str = "rename", *, drive_id: str | None = None) -> dict | None`
+`upload_file(headers: dict, site_id: str, file_path: str, filename: str, content: bytes | bytearray | memoryview | str, conflict_behavior: str = "rename", *, drive_id: str | None = None) -> dict`
 
 Upload a file to a SharePoint site. Parent folders do not need to exist beforehand. The `conflict_behavior` parameter controls what happens when a file with the same name already exists:
 
@@ -340,7 +396,7 @@ download_file(headers, site_id, "/Shared Documents/My Folder/file.txt", Path("/t
 
 ### move_file
 
-`move_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict | None`
+`move_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict`
 
 Move a file to a different folder within a SharePoint site. Optionally rename it during the move.
 
@@ -350,7 +406,7 @@ move_file(headers, site_id, "/Shared Documents/Old/file.txt", "/Shared Documents
 
 ### rename_file
 
-`rename_file(headers: dict, site_id: str, file_path: str, new_filename: str, *, drive_id: str | None = None) -> dict | None`
+`rename_file(headers: dict, site_id: str, file_path: str, new_filename: str, *, drive_id: str | None = None) -> dict`
 
 Rename a file in place on a SharePoint site. Uses `move_file` internally with the same parent path.
 
@@ -360,7 +416,7 @@ rename_file(headers, site_id, "/Shared Documents/My Folder/old_name.txt", "new_n
 
 ### copy_file
 
-`copy_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict | None`
+`copy_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict`
 
 Copy a file to a different folder within a SharePoint site. Optionally rename the copy.
 
@@ -370,9 +426,9 @@ copy_file(headers, site_id, "/Shared Documents/Source/file.txt", "/Shared Docume
 
 ### remove_file
 
-`remove_file(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> bool`
+`remove_file(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> None`
 
-Remove a file from a SharePoint site. Returns `True` if successful, `False` otherwise.
+Remove a file from a SharePoint site. Returns nothing on success; raises `requests.RequestException` on HTTP errors or exhausted retries.
 
 ```python
 remove_file(headers, site_id, "/Shared Documents/My Folder/file.txt")
@@ -392,7 +448,7 @@ get_lists(headers, site_id)
 
 ### get_list_metadata
 
-`get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict | None`
+`get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict`
 
 Retrieve the metadata of a specific SharePoint list.
 
@@ -402,7 +458,7 @@ get_list_metadata(headers, site_id, list_id)
 
 ### create_list
 
-`create_list(headers: dict, site_id: str, list_name: str, list_template: str = "genericList") -> dict | None`
+`create_list(headers: dict, site_id: str, list_name: str, list_template: str = "genericList") -> dict`
 
 Create a new SharePoint list. The `list_template` parameter defaults to `"genericList"`.
 
@@ -412,9 +468,9 @@ create_list(headers, site_id, "My New List", list_template="genericList")
 
 ### remove_list
 
-`remove_list(headers: dict, site_id: str, list_id: str) -> bool`
+`remove_list(headers: dict, site_id: str, list_id: str) -> None`
 
-Remove a SharePoint list. Returns `True` if successful, `False` otherwise.
+Remove a SharePoint list. Returns nothing on success; raises `requests.RequestException` on HTTP errors or exhausted retries.
 
 ```python
 remove_list(headers, site_id, list_id)
@@ -422,17 +478,34 @@ remove_list(headers, site_id, list_id)
 
 ### get_list_items
 
-`get_list_items(headers: dict, site_id: str, list_id: str, odata_filter: str | None = None, *, page_size: int | None = None) -> list[dict] | None`
+`get_list_items(headers: dict, site_id: str, list_id: str, odata_filter: str | None = None, *, expand: str | None = None, page_size: int | None = None) -> list[dict]`
 
 Retrieve items from a SharePoint list with optional OData filtering. Follows `@odata.nextLink` across all pages. Raises `requests.RequestException` on HTTP errors or exhausted retries. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
+Without `expand`, the returned items carry only base metadata (`id`, `webUrl`, timestamps) and **no column values**. Pass `expand="fields"` to include every column, or `expand="fields(select=Title,Status)"` to limit which columns come back — narrowing the selection keeps the payload small on wide lists.
+
 ```python
-get_list_items(headers, site_id, list_id, odata_filter="fields/Status eq 'Active'")
+# Base metadata only — no column values
+get_list_items(headers, site_id, list_id)
+
+# Every column value on each item
+get_list_items(headers, site_id, list_id, expand="fields")
+
+# Filter, and pull back only the two columns needed
+items = get_list_items(
+    headers,
+    site_id,
+    list_id,
+    odata_filter="fields/Status eq 'Active'",
+    expand="fields(select=Title,Status)",
+)
+for item in items:
+    print(item["fields"]["Title"], item["fields"]["Status"])
 ```
 
 ### get_list_item_metadata
 
-`get_list_item_metadata(headers: dict, site_id: str, list_id: str, item_id: str) -> dict | None`
+`get_list_item_metadata(headers: dict, site_id: str, list_id: str, item_id: str) -> dict`
 
 Retrieve the metadata of a specific list item, including its fields (via `$expand=fields`).
 
@@ -442,7 +515,7 @@ get_list_item_metadata(headers, site_id, list_id, item_id)
 
 ### create_list_item
 
-`create_list_item(headers: dict, site_id: str, list_id: str, fields: dict) -> dict | None`
+`create_list_item(headers: dict, site_id: str, list_id: str, fields: dict) -> dict`
 
 Create a new item in a SharePoint list.
 
@@ -452,7 +525,7 @@ create_list_item(headers, site_id, list_id, {"Title": "New Item", "Status": "Act
 
 ### update_list_item
 
-`update_list_item(headers: dict, site_id: str, list_id: str, item_id: str, fields: dict) -> dict | None`
+`update_list_item(headers: dict, site_id: str, list_id: str, item_id: str, fields: dict) -> dict`
 
 Update an existing item in a SharePoint list.
 
@@ -462,9 +535,9 @@ update_list_item(headers, site_id, list_id, item_id, {"Status": "Completed"})
 
 ### remove_list_item
 
-`remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) -> bool`
+`remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) -> None`
 
-Remove an item from a SharePoint list. Returns `True` if successful, `False` otherwise.
+Remove an item from a SharePoint list. Returns nothing on success; raises `requests.RequestException` on HTTP errors or exhausted retries.
 
 ```python
 remove_list_item(headers, site_id, list_id, item_id)
@@ -542,9 +615,11 @@ save_attachment(raw_bytes, Path("/tmp/data.csv"))
 
 ### create_subscription
 
-`create_subscription(headers: dict, notification_url: str, resource_type: str, resource: str, change_type: str, client_state: str) -> None`
+`create_subscription(headers: dict, notification_url: str, resource_type: str, resource: str, change_type: str, client_state: str, *, include_resource_data: bool = False, encryption_certificate: str | None = None, encryption_certificate_id: str | None = None) -> dict`
 
-Create a new Microsoft Graph webhook subscription. The `notification_url` is automatically suffixed with `/api/graph` for notifications and `/api/lifecycle` for lifecycle events. Expiration is calculated automatically based on `resource_type`.
+Create a new Microsoft Graph webhook subscription and return the created subscription object. The `notification_url` is automatically suffixed with `/api/graph` for notifications and `/api/lifecycle` for lifecycle events. Expiration is calculated automatically based on `resource_type`.
+
+Set `include_resource_data=True` to have Graph deliver the changed resource's data inside the notification payload rather than just a change pointer. Graph encrypts that payload, so this requires both `encryption_certificate` (the base64-encoded public key it should encrypt with) and `encryption_certificate_id` (your own identifier for that certificate, echoed back in each notification so the matching private key can be selected). Passing `include_resource_data=True` without both raises `ValueError`. This is the path needed for app-only subscriptions on richer resources such as Teams chat messages.
 
 ```python
 create_subscription(
@@ -557,9 +632,25 @@ create_subscription(
 )
 ```
 
+With resource data included in the notification:
+
+```python
+create_subscription(
+    headers,
+    notification_url="https://myapp.example.com",
+    resource_type="teams",
+    resource="chats/getAllMessages",
+    change_type="created",
+    client_state="my-secret-state",
+    include_resource_data=True,
+    encryption_certificate=base64_public_cert,
+    encryption_certificate_id="my-cert-v1",
+)
+```
+
 ### get_subscription
 
-`get_subscription(headers: dict, subscription_id: str) -> dict | None`
+`get_subscription(headers: dict, subscription_id: str) -> dict`
 
 Retrieve a subscription by its ID.
 
@@ -569,9 +660,9 @@ get_subscription(headers, subscription_id)
 
 ### list_subscriptions
 
-`list_subscriptions(headers: dict) -> list[dict] | None`
+`list_subscriptions(headers: dict, *, page_size: int | None = None) -> list[dict]`
 
-List all active subscriptions for the authenticated client.
+List all active subscriptions for the authenticated client. Follows `@odata.nextLink` across all pages, so the result is complete rather than truncated to the first page. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
 ```python
 list_subscriptions(headers)
@@ -579,12 +670,31 @@ list_subscriptions(headers)
 
 ### update_subscription_expiration
 
-`update_subscription_expiration(headers: dict, subscription_id: str) -> None`
+`update_subscription_expiration(headers: dict, subscription_id: str) -> dict`
 
-Renew a subscription by recalculating and updating its expiration datetime based on the resource type.
+Renew a subscription by recalculating and updating its expiration datetime based on the resource type. Returns the updated subscription object.
 
 ```python
 update_subscription_expiration(headers, subscription_id)
+```
+
+### renew_expiring_subscriptions
+
+`renew_expiring_subscriptions(headers: dict, threshold_minutes: int = RENEWAL_THRESHOLD) -> list[dict]`
+
+Renew every active subscription expiring within `threshold_minutes`, and return the subscription objects that were successfully renewed. Defaults to the module's `RENEWAL_THRESHOLD` (60 minutes).
+
+Intended to be run on a schedule (e.g. a Kestra flow) so subscriptions are renewed proactively, rather than relying on Graph's lifecycle and reauthorization notifications alone. Subscriptions expiring further out than the threshold are skipped.
+
+A failure renewing one subscription is logged and does not stop the rest from being processed, so a single bad subscription cannot block the sweep. `requests.RequestException` propagates only if the initial listing of subscriptions fails.
+
+```python
+# Renew anything expiring in the next hour
+renewed = renew_expiring_subscriptions(headers)
+logger.info("Renewed %d subscriptions", len(renewed))
+
+# Widen the window to four hours
+renew_expiring_subscriptions(headers, threshold_minutes=240)
 ```
 
 ### delete_subscription
@@ -609,9 +719,9 @@ reauthorize_subscription(headers, subscription_id)
 
 ### recreate_subscription
 
-`recreate_subscription(headers: dict, subscription_id: str) -> None`
+`recreate_subscription(headers: dict, subscription_id: str) -> dict`
 
-Recreate a subscription by fetching the existing subscription's details and creating a new one with the same configuration.
+Recreate a subscription by fetching the existing subscription's details and creating a new one with the same configuration. Returns the newly created subscription object.
 
 ```python
 recreate_subscription(headers, subscription_id)
@@ -619,9 +729,9 @@ recreate_subscription(headers, subscription_id)
 
 ### update_notification_url
 
-`update_notification_url(headers: dict, subscription_id: str, new_notification_url: str) -> None`
+`update_notification_url(headers: dict, subscription_id: str, new_notification_url: str) -> dict`
 
-Update the notification URL of an existing subscription.
+Update the notification URL of an existing subscription. Returns the updated subscription object.
 
 ```python
 update_notification_url(headers, subscription_id, "https://new-endpoint.example.com")

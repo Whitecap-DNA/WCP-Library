@@ -2,8 +2,6 @@
 Module for Microsoft Graph API authentication and configuration.
 """
 
-from pathlib import Path
-
 import requests
 from tenacity import retry as tenacity_retry
 

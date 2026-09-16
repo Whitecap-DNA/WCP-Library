@@ -14,6 +14,8 @@ This module defines the foundational architecture for browser automation. It int
 - Optional SharePoint integration for uploading error screenshots.
 - Context manager (`Browser`) for automatic setup and teardown of browser sessions.
 - Seamless integration with interaction utilities from `interactions.py`.
+- Extensible via `create_driver` — subclass `BaseSelenium` to launch a browser or driver configuration the library does not ship with.
+- 5xx error-page detection (`is_server_error_page`) so a gateway/server error page can be told apart from real content.
 
 ## Interactions
 
@@ -89,6 +91,43 @@ To save execution screenshots to SharePoint in case of RPA error, add sharepoint
 * `app_id`
 * `app_secret`
 * `tenant_id`
+
+## Extending with a Custom Browser
+
+`Browser.Firefox`, `Browser.Edge`, and `Browser.Chrome` are thin subclasses of `BaseSelenium`; each one implements a single method.
+
+### create_driver
+
+`create_driver(self) -> webdriver.Remote`
+
+Create and return the Selenium WebDriver instance backing the session. `BaseSelenium.create_driver` raises `NotImplementedError`, so every subclass **must** override it. `Browser.__enter__` calls it once when the context manager is entered, and assigns the result to the session's `driver` attribute.
+
+Override it to launch a browser the library does not ship with, or to launch one of the supported browsers differently — against a Selenium Grid, say, or with a driver service the built-in subclasses do not configure. Call `self._add_options(options)` to apply the `browser_options` dictionary passed to the constructor, so a custom subclass honours the same option format as the built-in ones.
+
+```python
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+
+from wcp_library.browser_automation.browser import BaseSelenium, Browser
+
+
+class RemoteChrome(BaseSelenium):
+    """Chrome running on a Selenium Grid rather than locally."""
+
+    def create_driver(self) -> webdriver.Remote:
+        options = ChromeOptions()
+        self._add_options(options)
+        return webdriver.Remote(
+            command_executor="http://grid.example.com:4444/wd/hub",
+            options=options,
+        )
+
+
+with Browser(RemoteChrome, {"timeouts": {"implicit": 5000}}) as driver:
+    driver.go_to("https://example.com")
+```
+
+The subclass inherits every interaction helper, the SharePoint error-screenshot handling, and `SeleniumExceptions` unchanged.
 
 ## SeleniumExceptions
 
@@ -191,9 +230,27 @@ Get the title of the current page.
 driver.get_title()
 ```
 
+### is_server_error_page
+
+`is_server_error_page(self) -> bool`
+
+Check whether the page currently loaded is a 5xx server/gateway error page rather than real content. The page title and page source are searched for common patterns such as `502 Bad Gateway`, `503 Service Unavailable`, `504 Gateway Timeout`, and `500 Internal Server Error`.
+
+Returns `True` when a 5xx pattern is found. Returns `False` otherwise — including when the page cannot be read at all (no driver, or the WebDriver raises while reading the title/source), so it never raises on its own.
+
+Useful for retrying a navigation that came back as an error page: Selenium raises nothing for a 5xx response, because from the browser's point of view a page loaded successfully.
+
+```python
+driver.go_to("https://example.com/report")
+
+if driver.is_server_error_page():
+    driver.force_wait(30)
+    driver.refresh_page()
+```
+
 ### switch_to_window
 
-`switch_to_window(self, window_handle: str | list | None = None) -> dict | None`
+`switch_to_window(self, window_handle: str | list | None = None) -> dict[str, str | list] | None`
 
 Switch the browser context to a new window. If none is specified, it will switch to the next opened window and return a dictionary with the original, new, and all window handles.
 

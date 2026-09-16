@@ -234,8 +234,10 @@ def get_file_content(
     :param drive_id: Optional drive (document library) ID. If omitted, the
         site's default drive is used (for path-based) or the root drive is used (for ID-based).
     :param item_id: The ID of the file (required for ID-based).
-    :return: The file content as bytes, or ``None`` if the download failed.
+    :return: The file content as bytes.
     :raises ValueError: If the required parameters for the chosen addressing mode are not provided.
+    :raises requests.RequestException: If the request fails (including after
+        retries are exhausted).
     """
     if item_id is not None:
         if drive_id is None:

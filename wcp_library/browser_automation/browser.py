@@ -70,33 +70,22 @@ class BaseSelenium(UIInteractions, WEInteractions):
     ``WEInteractions`` and adds browser lifecycle methods (navigation,
     window management, JavaScript execution, etc.).
 
-    Parameters
-    ----------
-    browser_options : dict or None, optional
-        Custom WebDriver options (headless mode, arguments, download path,
-        timeouts, etc.).
-    sharepoint_config : dict or None, optional
-        Configuration for uploading error screenshots to SharePoint.
-        Expected keys: ``site_id``, ``app_id``, ``app_secret``, ``tenant_id``
-
-    Attributes
-    ----------
-    driver : selenium.webdriver.remote.webdriver.WebDriver or None
-        The active WebDriver instance, set after entering the context manager.
-    browser_options : dict
-        Resolved browser options.
-    sharepoint_config : dict or None
-        SharePoint configuration passed to the ``Interactions`` base.
+    :param browser_options: Custom WebDriver options (headless mode, arguments, download
+        path, timeouts, etc.).
+    :param sharepoint_config: Configuration for uploading error screenshots to
+        SharePoint. Expected keys: ``site_id``, ``app_id``, ``app_secret``,
+        ``tenant_id``
+    :ivar driver: The active WebDriver instance, set after entering the context manager.
+    :ivar browser_options: Resolved browser options.
+    :ivar sharepoint_config: SharePoint configuration passed to the ``Interactions``
+        base.
     """
 
     class SeleniumExceptions:
         """
         Container for all Selenium exception classes.
 
-        Attributes
-        ----------
-        ALL : tuple of type
-            Every ``Exception`` subclass defined in
+        :ivar ALL: Every ``Exception`` subclass defined in
             ``selenium.common.exceptions``.
         """
 
@@ -151,15 +140,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Subclasses **must** override this method to return a browser-specific
         driver (Chrome, Firefox, Edge, etc.).
 
-        Returns
-        -------
-        selenium.webdriver.remote.webdriver.WebDriver
-            A newly created WebDriver instance.
-
-        Raises
-        ------
-        NotImplementedError
-            Always, unless overridden by a subclass.
+        :return: A newly created WebDriver instance.
+        :raises NotImplementedError: Always, unless overridden by a subclass.
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
@@ -177,10 +159,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Handles standard Selenium attributes, command-line arguments, and
         download-path configuration for each supported browser family.
 
-        Parameters
-        ----------
-        options : ChromeOptions, FirefoxOptions, or EdgeOptions
-            The browser options instance to configure.
+        :param options: The browser options instance to configure.
         """
         if not self.browser_options:
             return
@@ -222,15 +201,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Navigate to the specified URL.
 
-        Parameters
-        ----------
-        url : str or yarl.URL
-            The target URL.
-
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
+        :param url: The target URL.
+        :raises RuntimeError: If the WebDriver is not initialised.
         """
         if self.driver:
             self.driver.get(str(url))
@@ -241,10 +213,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Refresh the current page.
 
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
+        :raises RuntimeError: If the WebDriver is not initialised.
         """
         if self.driver:
             self.driver.refresh()
@@ -255,15 +224,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Return the current page URL.
 
-        Returns
-        -------
-        str
-            The current URL.
-
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
+        :return: The current URL.
+        :raises RuntimeError: If the WebDriver is not initialised.
         """
         if self.driver:
             return self.driver.current_url
@@ -273,15 +235,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Return the current page title.
 
-        Returns
-        -------
-        str
-            The page title.
-
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
+        :return: The page title.
+        :raises RuntimeError: If the WebDriver is not initialised.
         """
         if self.driver:
             return self.driver.title
@@ -295,11 +250,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Unavailable', '504 Gateway Timeout', or '500 Internal Server Error'
         in the page title and page source.
 
-        Returns
-        -------
-        bool
-            True if a 5xx error pattern is found. False otherwise,
-            including when the page cannot be read at all.
+        :return: True if a 5xx error pattern is found. False otherwise, including when
+            the page cannot be read at all.
         """
         if self.driver:
 
@@ -328,18 +280,11 @@ class BaseSelenium(UIInteractions, WEInteractions):
         Otherwise the method searches for a newly opened window that differs
         from the current one.
 
-        Parameters
-        ----------
-        window_handle : str, list, or None, optional
-            Explicit handle to switch to. If ``None``, the first window
-            that is not the current one is used.
-
-        Returns
-        -------
-        dict or None
-            A dictionary with keys ``'original_window'``, ``'new_window'``,
-            and ``'all_windows'`` when a new window was found, or ``None``
-            if *window_handle* was given or no new window exists.
+        :param window_handle: Explicit handle to switch to. If ``None``, the first
+            window that is not the current one is used.
+        :return: A dictionary with keys ``'original_window'``, ``'new_window'``, and
+            ``'all_windows'`` when a new window was found, or ``None`` if
+            *window_handle* was given or no new window exists.
         """
         if window_handle:
             self.driver.switch_to.window(window_handle)
@@ -364,11 +309,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Close a browser window.
 
-        Parameters
-        ----------
-        window_handle : str or None, optional
-            Handle of the window to close. If ``None``, the current window
-            is closed.
+        :param window_handle: Handle of the window to close. If ``None``, the current
+            window is closed.
         """
         if window_handle:
             current_window = self.driver.current_window_handle
@@ -384,10 +326,7 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Block execution for a fixed duration.
 
-        Parameters
-        ----------
-        wait_time : int or float
-            Seconds to sleep.
+        :param wait_time: Seconds to sleep.
         """
         time.sleep(wait_time)
 
@@ -395,25 +334,12 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Execute JavaScript in the browser context.
 
-        Parameters
-        ----------
-        script : str
-            JavaScript source code.
-        *args
-            Arguments passed to the script (accessible as
-            ``arguments[0]``, ``arguments[1]``, etc.).
-
-        Returns
-        -------
-        Any
-            The value returned by the script.
-
-        Raises
-        ------
-        RuntimeError
-            If the WebDriver is not initialised.
-        WebDriverException
-            If script execution fails.
+        :param script: JavaScript source code.
+        :param args: Arguments passed to the script (accessible as ``arguments[0]``,
+            ``arguments[1]``, etc.).
+        :return: The value returned by the script.
+        :raises RuntimeError: If the WebDriver is not initialised.
+        :raises WebDriverException: If script execution fails.
         """
         if self.driver:
             return self.driver.execute_script(script, *args)
@@ -427,14 +353,11 @@ class Browser:
     Wraps a browser subclass (``Browser.Firefox``, ``Browser.Chrome``, or
     ``Browser.Edge``) and manages driver creation and teardown.
 
-    Parameters
-    ----------
-    browser_class : type
-        The browser subclass to instantiate (e.g. ``Browser.Firefox``).
-    browser_options : dict or None, optional
-        Custom WebDriver options forwarded to the browser subclass.
-    sharepoint_config : dict or None, optional
-        Configuration for uploading error screenshots to SharePoint.
+    :param browser_class: The browser subclass to instantiate (e.g.
+        ``Browser.Firefox``).
+    :param browser_options: Custom WebDriver options forwarded to the browser subclass.
+    :param sharepoint_config: Configuration for uploading error screenshots to
+        SharePoint.
     """
 
     SeleniumExceptions = BaseSelenium.SeleniumExceptions
@@ -476,20 +399,14 @@ class Browser:
         """
         Firefox WebDriver implementation.
 
-        Parameters
-        ----------
-        browser_options : dict or None, optional
-            Custom options forwarded to ``FirefoxOptions``.
+        :param browser_options: Custom options forwarded to ``FirefoxOptions``.
         """
 
         def create_driver(self) -> webdriver.Firefox:
             """
             Create a Firefox WebDriver instance.
 
-            Returns
-            -------
-            selenium.webdriver.Firefox
-                A configured Firefox driver.
+            :return: A configured Firefox driver.
             """
             options = FirefoxOptions()
             self._add_options(options)
@@ -499,20 +416,14 @@ class Browser:
         """
         Edge WebDriver implementation.
 
-        Parameters
-        ----------
-        browser_options : dict or None, optional
-            Custom options forwarded to ``EdgeOptions``.
+        :param browser_options: Custom options forwarded to ``EdgeOptions``.
         """
 
         def create_driver(self) -> webdriver.Edge:
             """
             Create an Edge WebDriver instance.
 
-            Returns
-            -------
-            selenium.webdriver.Edge
-                A configured Edge driver.
+            :return: A configured Edge driver.
             """
             options = EdgeOptions()
             self._add_options(options)
@@ -522,20 +433,14 @@ class Browser:
         """
         Chrome WebDriver implementation.
 
-        Parameters
-        ----------
-        browser_options : dict or None, optional
-            Custom options forwarded to ``ChromeOptions``.
+        :param browser_options: Custom options forwarded to ``ChromeOptions``.
         """
 
         def create_driver(self) -> webdriver.Chrome:
             """
             Create a Chrome WebDriver instance.
 
-            Returns
-            -------
-            selenium.webdriver.Chrome
-                A configured Chrome driver.
+            :return: A configured Chrome driver.
             """
             options = ChromeOptions()
             self._add_options(options)

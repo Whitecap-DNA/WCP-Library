@@ -65,7 +65,7 @@ Sends an email with optional HTML body, attachments, and CC / BCC recipients.
 
 #### Parameters
 
-- `sender` (str): Email address of the sender. Must be in the approved-senders list: `python@wcap.ca`, `workflow@wcap.ca`, `reports@wcap.ca`. Any other sender raises `ValueError`.
+- `sender` (str): Email address of the sender. Must be in the approved-senders list: `python@wcap.ca`, `workflow@wcap.ca`, `reports@wcap.ca`, `dataintegrationssupport@wcap.ca`. Any other sender raises `ValueError`.
 - `recipients` (list[str] | str): A single recipient address or a list of addresses.
 - `subject` (str): Subject line of the email.
 - `body` (str): Email body text (plain text or HTML depending on `body_type`).

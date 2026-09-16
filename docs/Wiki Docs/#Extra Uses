@@ -40,3 +40,36 @@ def something(): ...
 ```
 
 `wcp_library.retry` also exports pre-built SQL and Graph retry strategies (`postgres_retry_kwargs`, `oracle_retry_kwargs`, `graph_retry_kwargs`) — consumed internally by the library's SQL connection classes and Graph helpers. See `wcp_library/retry.py` for the full set.
+
+# generate_password
+
+`generate_password(length: int = 12, use_nums: bool = True, use_special: bool = True, special_chars_override: str | None = None, force_num: bool = True, force_spec: bool = True, max_attempts: int = 1000) -> str`
+
+Generates a random password using `secrets`, for creating or rotating a Vault entry rather than typing one by hand.
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `length` | `12` | Password length. Must be at least 1. |
+| `use_nums` | `True` | Allow digits in the alphabet. |
+| `use_special` | `True` | Allow special characters in the alphabet. |
+| `special_chars_override` | `None` | Use this string as the special-character set instead of `string.punctuation`. Useful when a downstream system rejects some symbols. |
+| `force_num` | `True` | Require at least one digit in the result. |
+| `force_spec` | `True` | Require at least one special character in the result. |
+| `max_attempts` | `1000` | How many candidates to try before giving up. |
+
+The first character is never a digit, which keeps the password usable in the places that reject a leading number. Candidates are generated until one satisfies every constraint.
+
+Raises `ValueError` if `length` is less than 1, if a character type is forced while disallowed (e.g. `force_num=True` with `use_nums=False`), or if no valid password is produced within `max_attempts`.
+
+```python
+from wcp_library.credentials import generate_password
+
+# 12 characters, at least one digit and one symbol
+password = generate_password()
+
+# Longer, letters and digits only
+password = generate_password(length=20, use_special=False, force_spec=False)
+
+# Restrict the symbol set to what the target system accepts
+password = generate_password(length=16, special_chars_override="!@#$%")
+```
