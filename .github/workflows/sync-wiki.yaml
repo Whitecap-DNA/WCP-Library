@@ -1,0 +1,57 @@
+name: Sync Wiki
+
+# The wiki is a separate git repo with no link to this one, so changes under
+# docs/Wiki Docs are published here rather than automatically. The repo is the
+# source of truth: pages are overwritten, and edits made in the wiki's browser
+# editor are not preserved.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/Wiki Docs/**"
+      - ".github/scripts/sync_wiki.py"
+      - ".github/workflows/sync-wiki.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-wiki
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Publish docs/Wiki Docs to the wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.7"
+
+      - name: Copy docs onto wiki pages
+        run: python .github/scripts/sync_wiki.py "docs/Wiki Docs" wiki
+
+      - name: Commit and push
+        working-directory: wiki
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Wiki already matches docs/Wiki Docs; nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*.md'
+          git commit -m "Sync wiki from docs/Wiki Docs@${GITHUB_SHA::7}"
+          git push
