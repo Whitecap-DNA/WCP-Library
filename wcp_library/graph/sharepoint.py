@@ -43,8 +43,10 @@ Dependencies:
 
 import base64
 import logging
+import threading
 from pathlib import Path
 
+import requests
 from yarl import URL
 
 from wcp_library.graph import _GRAPH_ROOT, _request
@@ -282,6 +284,16 @@ def download_file(
     return output_path
 
 
+def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
+    if isinstance(content, bytes):
+        return content
+    if isinstance(content, (bytearray, memoryview)):
+        return bytes(content)
+    if isinstance(content, str):
+        return base64.b64decode(content)
+    raise TypeError(f"Unsupported content type: {type(content).__name__}")
+
+
 def upload_file(
     headers: dict,
     site_id: str,
@@ -322,14 +334,73 @@ def upload_file(
     return json_response
 
 
-def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
-    if isinstance(content, bytes):
-        return content
-    if isinstance(content, (bytearray, memoryview)):
-        return bytes(content)
-    if isinstance(content, str):
-        return base64.b64decode(content)
-    raise TypeError(f"Unsupported content type: {type(content).__name__}")
+def upload_multiple_files(
+    headers: dict,
+    site_id: str,
+    file_path: str,
+    files: list[tuple[str, bytes | bytearray | memoryview | str]],
+    conflict_behavior: str = "rename",
+    *,
+    drive_id: str | None = None,
+) -> list[dict]:
+    """Uploads multiple files to the same SharePoint folder in parallel.
+
+    Each file is uploaded with :func:`upload_file`, one thread per
+    in-flight upload. Retry and backoff on HTTP 429/503/504 (including
+    honoring the ``Retry-After`` header) happens inside ``_request``,
+    the same as for a single upload; this function adds no retry logic
+    of its own.
+
+    A failed upload does not stop the rest of the batch. Each
+    ``requests.RequestException`` (including one that survives all of
+    ``_request``'s retries) is caught per file and reported in the
+    returned list instead of being raised. Any other exception (a bug,
+    not a transient Graph error) still propagates to the caller.
+
+    API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content
+
+    :param headers: The headers containing the Authorization token.
+    :param site_id: The ID of the SharePoint site.
+    :param file_path: The location to save the files to (e.g. "Shared Documents/My Folder").
+        All files are uploaded to this same folder.
+    :param files: A list of ``(filename, content)`` tuples. ``content`` is bytes,
+        bytearray, memoryview, or a base64-encoded string (from Graph API), as
+        accepted by :func:`upload_file`.
+    :param conflict_behavior: The behavior when a file with the same name already exists.
+        Options are "rename"(default), "replace", or "fail". Applied to every file.
+    :param drive_id: Optional drive (document library) ID. If omitted, the
+        site's default drive is used.
+    :return: A list of results, one per entry in ``files``, in the same order.
+        On success, the entry is the Graph API response JSON, as returned by
+        :func:`upload_file`. On failure, the entry is
+        ``{"filename": <name>, "error": <the RequestException>}``.
+    """
+    results: list[dict] = [{} for _ in files]
+
+    def _upload_one(index: int, filename: str, content) -> None:
+        try:
+            results[index] = upload_file(
+                headers,
+                site_id,
+                file_path,
+                filename,
+                content,
+                conflict_behavior,
+                drive_id=drive_id,
+            )
+        except requests.RequestException as e:
+            results[index] = {"filename": filename, "error": e}
+
+    threads = [
+        threading.Thread(target=_upload_one, args=(index, filename, content))
+        for index, (filename, content) in enumerate(files)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    return results
 
 
 def move_file(
