@@ -337,8 +337,7 @@ def upload_file(
 def upload_multiple_files(
     headers: dict,
     site_id: str,
-    file_path: str,
-    files: list[tuple[str, bytes | bytearray | memoryview | str]],
+    files: list[tuple[str, str, bytes | bytearray | memoryview | str]],
     conflict_behavior: str = "rename",
     *,
     drive_id: str | None = None,
@@ -361,10 +360,10 @@ def upload_multiple_files(
 
     :param headers: The headers containing the Authorization token.
     :param site_id: The ID of the SharePoint site.
-    :param file_path: The location to save the files to (e.g. "Shared Documents/My Folder").
-        All files are uploaded to this same folder.
-    :param files: A list of ``(filename, content)`` tuples. ``content`` is bytes,
-        bytearray, memoryview, or a base64-encoded string (from Graph API), as
+    :param files: A list of ``(file_path, filename, content)`` tuples. ``file_path`` is the
+        destination folder path in SharePoint (e.g., "Shared Documents/My Folder").
+        ``filename`` is the name of the file to be uploaded.
+        ``content`` is bytes, bytearray, memoryview, or a base64-encoded string (from Graph API), as
         accepted by :func:`upload_file`.
     :param conflict_behavior: The behavior when a file with the same name already exists.
         Options are "rename"(default), "replace", or "fail". Applied to every file.
@@ -375,11 +374,11 @@ def upload_multiple_files(
         :func:`upload_file`. On failure, the entry is
         ``{"filename": <name>, "error": <the RequestException>}``.
     """
-    results: list[dict] = [{} for _ in files]
+    responses: list[dict] = [{} for _ in files]
 
-    def _upload_one(index: int, filename: str, content) -> None:
+    def _upload_one(index: int, file_path: str, filename: str, content) -> None:
         try:
-            results[index] = upload_file(
+            responses[index] = upload_file(
                 headers,
                 site_id,
                 file_path,
@@ -389,18 +388,18 @@ def upload_multiple_files(
                 drive_id=drive_id,
             )
         except requests.RequestException as e:
-            results[index] = {"filename": filename, "error": e}
+            responses[index] = {"filename": filename, "error": e}
 
     threads = [
-        threading.Thread(target=_upload_one, args=(index, filename, content))
-        for index, (filename, content) in enumerate(files)
+        threading.Thread(target=_upload_one, args=(index, file_path, filename, content))
+        for index, (file_path, filename, content) in enumerate(files)
     ]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
-    return results
+    return responses
 
 
 def move_file(
