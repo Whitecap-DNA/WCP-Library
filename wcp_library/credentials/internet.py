@@ -20,8 +20,10 @@ class InternetCredentialManager(CredentialManager):
             - Password
             - URL
 
-        :param credentials_dict:
-        :return:
+        :param credentials_dict: The entry to create.
+        :return: True. Failure raises rather than being returned.
+        :raises CredentialWriteError: If the vault rejects the new entry or
+            the request fails.
         """
 
         data = {
@@ -50,8 +52,10 @@ class AsyncInternetCredentialManager(AsyncCredentialManager):
             - Password
             - URL
 
-        :param credentials_dict:
-        :return:
+        :param credentials_dict: The entry to create.
+        :return: True. Failure raises rather than being returned.
+        :raises CredentialWriteError: If the vault rejects the new entry or
+            the request fails.
         """
 
         data = {

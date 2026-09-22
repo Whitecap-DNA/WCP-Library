@@ -4,7 +4,8 @@ from abc import ABC,abstractmethod
 import requests
 from yarl import URL
 
-from wcp_library.credentials import MissingCredentialsError
+from wcp_library.credentials import (CredentialWriteError,
+                                     MissingCredentialsError)
 
 logger = logging.getLogger(__name__)
 
@@ -93,24 +94,31 @@ class CredentialManager(ABC):
         """
         Publish a new password to the password list
 
-        :param data:
-        :return:
+        :param data: The entry to create, as the vault API expects it.
+        :return: True. Failure raises rather than being returned.
+        :raises CredentialWriteError: If the vault rejects the new entry or the
+            request fails.
         """
 
         try:
             response = requests.post(str(self.password_url), json=data, headers=self.headers, timeout=30)
-            if response.status_code == 201:
-                logger.debug(f"New credentials for {data['UserName']} created")
-                return True
-            else:
-                logger.error(f"Failed to create new credentials for {data['UserName']}: HTTP {response.status_code}")
-                return False
-        except requests.Timeout:
-            logger.error(f"Timeout creating credentials for {data['UserName']}")
-            return False
+        except requests.Timeout as e:
+            raise CredentialWriteError(
+                f"Timeout creating credentials for {data['UserName']}"
+            ) from e
         except requests.RequestException as e:
-            logger.error(f"Request error creating credentials for {data['UserName']}: {e}")
-            return False
+            raise CredentialWriteError(
+                f"Request error creating credentials for {data['UserName']}: {e}"
+            ) from e
+
+        if response.status_code != 201:
+            raise CredentialWriteError(
+                f"Failed to create new credentials for {data['UserName']}: "
+                f"HTTP {response.status_code}"
+            )
+
+        logger.debug(f"New credentials for {data['UserName']} created")
+        return True
 
     def get_credentials(self, username: str) -> dict:
         """
@@ -149,8 +157,12 @@ class CredentialManager(ABC):
 
         The dictionary should be obtained from the get_credentials method and modified accordingly
 
-        :param credentials_dict:
-        :return: True if successful, False otherwise
+        :param credentials_dict: The modified credential dictionary.
+        :return: True. Failure raises rather than being returned.
+        :raises MissingCredentialsError: If the existing entry cannot be
+            read from the vault, or no entry matches the username.
+        :raises CredentialWriteError: If the vault rejects the update or
+            the request fails.
         """
 
         if "OTP" in credentials_dict:
@@ -170,19 +182,32 @@ class CredentialManager(ABC):
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
-        relevant_credential_entry = [x for x in passwords if x['UserName'] == credentials_dict['UserName']][0]
+        matching = [x for x in passwords if x['UserName'] == credentials_dict['UserName']]
+        if not matching:
+            raise MissingCredentialsError(
+                f"Credentials for {credentials_dict['UserName']} not found in this Password List"
+            )
+        relevant_credential_entry = matching[0]
         for field in relevant_credential_entry['GenericFieldInfo']:
             if field['DisplayName'] in credentials_dict:
                 credentials_dict[field['GenericFieldID']] = credentials_dict[field['DisplayName']]
                 credentials_dict.pop(field['DisplayName'])
 
-        response = requests.put(str(self.password_url), json=credentials_dict, headers=self.headers)
-        if response.status_code == 200:
-            logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
-            return True
-        else:
-            logger.error(f"Failed to update credentials for {credentials_dict['UserName']}")
-            return False
+        try:
+            response = requests.put(str(self.password_url), json=credentials_dict, headers=self.headers, timeout=30)
+        except requests.RequestException as e:
+            raise CredentialWriteError(
+                f"Error updating credentials for {credentials_dict['UserName']}: {e}"
+            ) from e
+
+        if response.status_code != 200:
+            raise CredentialWriteError(
+                f"Failed to update credentials for {credentials_dict['UserName']}: "
+                f"HTTP {response.status_code}"
+            )
+
+        logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
+        return True
 
     @abstractmethod
     def new_credentials(self, credentials_dict: dict) -> bool:

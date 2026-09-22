@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from wcp_library.credentials import CredentialWriteError
+
 from wcp_library.credentials.api import (
     APICredentialManager,
     AsyncAPICredentialManager,
@@ -68,10 +70,12 @@ class TestAPINewCredentials:
             with pytest.raises(KeyError):
                 mgr.new_credentials(creds)
 
-    def test_publish_returns_false_propagates(self):
+    def test_publish_failure_propagates(self):
         mgr = APICredentialManager("k")
-        with patch.object(mgr, "_publish_new_password", return_value=False):
-            assert mgr.new_credentials(_sample_creds()) is False
+        with patch.object(mgr, "_publish_new_password",
+                          side_effect=CredentialWriteError("vault said no")):
+            with pytest.raises(CredentialWriteError, match="vault said no"):
+                mgr.new_credentials(_sample_creds())
 
 
 class TestAsyncAPICredentialManagerConstruction:

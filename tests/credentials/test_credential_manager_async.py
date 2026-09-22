@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 import aiohttp
 import pytest
 
-from wcp_library.credentials import MissingCredentialsError
+from wcp_library.credentials import (CredentialWriteError,
+                                     MissingCredentialsError)
 from wcp_library.credentials._credential_manager_asynchronous import (
     AsyncCredentialManager,
 )
@@ -234,20 +235,20 @@ class TestAsyncPublishNewPassword:
         assert ok is True
         assert factory.session.post_kwargs["json"] == {"UserName": "u"}
 
-    async def test_non_201_returns_false(self):
+    async def test_non_201_raises(self):
         resp = _FakeResponse(status=500)
         factory = _session_factory(post_response=resp)
         with patch(f"{MODULE}.aiohttp.ClientSession", factory):
             mgr = AsyncAPICredentialManager("k")
-            ok = await mgr._publish_new_password({"UserName": "u"})
-        assert ok is False
+            with pytest.raises(CredentialWriteError, match="HTTP 500"):
+                await mgr._publish_new_password({"UserName": "u"})
 
-    async def test_client_error_returns_false(self):
+    async def test_client_error_raises(self):
         factory = _session_factory(post_exc=aiohttp.ClientError("boom"))
         with patch(f"{MODULE}.aiohttp.ClientSession", factory):
             mgr = AsyncAPICredentialManager("k")
-            ok = await mgr._publish_new_password({"UserName": "u"})
-        assert ok is False
+            with pytest.raises(CredentialWriteError, match="boom"):
+                await mgr._publish_new_password({"UserName": "u"})
 
 
 class TestAsyncUpdateCredential:
@@ -296,9 +297,9 @@ class TestAsyncUpdateCredential:
         with patch(f"{MODULE}.aiohttp.ClientSession",
                    lambda *a, **k: next(it)):
             mgr = AsyncAPICredentialManager("k")
-            ok = await mgr.update_credential(
-                {"UserName": "alice", "Password": "new"})
-        assert ok is False
+            with pytest.raises(CredentialWriteError, match="HTTP 500"):
+                await mgr.update_credential(
+                    {"UserName": "alice", "Password": "new"})
 
     async def test_get_client_error_raises(self):
         factory = _session_factory(get_exc=aiohttp.ClientError("x"))
@@ -324,7 +325,7 @@ class TestAsyncUpdateCredential:
             with pytest.raises(MissingCredentialsError, match="not found"):
                 await mgr.update_credential({"UserName": "alice"})
 
-    async def test_put_client_error_returns_false(self):
+    async def test_put_client_error_raises(self):
         get_resp = _FakeResponse(json_value=self._existing())
         sessions = [
             _FakeSession(get_response=get_resp),
@@ -334,9 +335,9 @@ class TestAsyncUpdateCredential:
         with patch(f"{MODULE}.aiohttp.ClientSession",
                    lambda *a, **k: next(it)):
             mgr = AsyncAPICredentialManager("k")
-            ok = await mgr.update_credential(
-                {"UserName": "alice", "Password": "new"})
-        assert ok is False
+            with pytest.raises(CredentialWriteError, match="boom"):
+                await mgr.update_credential(
+                    {"UserName": "alice", "Password": "new"})
 
 
 class TestAsyncNewCredentialsAbstract:

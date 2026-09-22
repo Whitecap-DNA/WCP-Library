@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from wcp_library.credentials import MissingCredentialsError
+from wcp_library.credentials import (CredentialWriteError,
+                                     MissingCredentialsError)
 from wcp_library.credentials._credential_manager_synchronous import CredentialManager
 from wcp_library.credentials.api import APICredentialManager
 
@@ -189,23 +190,26 @@ class TestPublishNewPassword:
         assert ok is True
         mock_post.assert_called_once()
 
-    def test_non_201_returns_false(self):
+    def test_non_201_raises(self):
         resp = MagicMock(status_code=500)
         data = {"UserName": "u"}
         with patch(f"{MODULE}.requests.post", return_value=resp):
-            assert self._mgr()._publish_new_password(data) is False
+            with pytest.raises(CredentialWriteError, match="HTTP 500"):
+                self._mgr()._publish_new_password(data)
 
-    def test_timeout_returns_false(self):
+    def test_timeout_raises(self):
         data = {"UserName": "u"}
         with patch(f"{MODULE}.requests.post",
                    side_effect=requests.Timeout()):
-            assert self._mgr()._publish_new_password(data) is False
+            with pytest.raises(CredentialWriteError, match="Timeout"):
+                self._mgr()._publish_new_password(data)
 
-    def test_request_exception_returns_false(self):
+    def test_request_exception_raises(self):
         data = {"UserName": "u"}
         with patch(f"{MODULE}.requests.post",
                    side_effect=requests.RequestException("boom")):
-            assert self._mgr()._publish_new_password(data) is False
+            with pytest.raises(CredentialWriteError, match="boom"):
+                self._mgr()._publish_new_password(data)
 
 
 class TestUpdateCredential:
@@ -241,7 +245,7 @@ class TestUpdateCredential:
         assert sent[77] == "h2"
         assert "Host" not in sent
 
-    def test_non_200_returns_false(self):
+    def test_non_200_raises(self):
         mgr = APICredentialManager("k")
         get_resp = MagicMock()
         get_resp.raise_for_status = MagicMock()
@@ -250,7 +254,31 @@ class TestUpdateCredential:
         cred = {"UserName": "alice", "Password": "new"}
         with patch(f"{MODULE}.requests.get", return_value=get_resp), \
                 patch(f"{MODULE}.requests.put", return_value=put_resp):
-            assert mgr.update_credential(cred) is False
+            with pytest.raises(CredentialWriteError, match="HTTP 500"):
+                mgr.update_credential(cred)
+
+    def test_put_request_exception_raises(self):
+        mgr = APICredentialManager("k")
+        get_resp = MagicMock()
+        get_resp.raise_for_status = MagicMock()
+        get_resp.json.return_value = [self._make_existing_record()]
+        cred = {"UserName": "alice", "Password": "new"}
+        with patch(f"{MODULE}.requests.get", return_value=get_resp), \
+                patch(f"{MODULE}.requests.put",
+                      side_effect=requests.RequestException("boom")):
+            with pytest.raises(CredentialWriteError, match="boom"):
+                mgr.update_credential(cred)
+
+    def test_username_not_found_raises(self):
+        # The vault returns entries, but none match the requested UserName.
+        # This used to fall off the end of a list index and raise IndexError.
+        mgr = APICredentialManager("k")
+        get_resp = MagicMock()
+        get_resp.raise_for_status = MagicMock()
+        get_resp.json.return_value = [self._make_existing_record("someoneelse")]
+        with patch(f"{MODULE}.requests.get", return_value=get_resp):
+            with pytest.raises(MissingCredentialsError, match="not found"):
+                mgr.update_credential({"UserName": "alice", "Password": "new"})
 
     def test_timeout_during_get_raises(self):
         mgr = APICredentialManager("k")

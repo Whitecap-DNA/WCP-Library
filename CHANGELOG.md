@@ -21,8 +21,27 @@ Releases before 1.15.0 predate this file; see the git history for those.
   safe with `conflict_behavior="replace"`. See
   `docs/adr/0003-upload-multiple-files-raises.md`.
 
+- **`wcp_library.informatica` removed.** Informatica is no longer used as a
+  product at WCAP, so the module and its `InformaticaSession` client are gone,
+  with no replacement in this library. The last release containing it is
+  1.14.11. Its wiki page is kept as a removal notice rather than deleted, since
+  the wiki sync never deletes pages and an old link should resolve to an
+  explanation.
+- **Credential writes raise instead of returning `False`.**
+  `update_credential` and `new_credentials`, on every credential manager, sync
+  and async, now raise the new `CredentialWriteError` when the Vault rejects a
+  write or the request fails. They previously returned `False`, so a caller who
+  did not inspect the return value carried on as though the write had
+  succeeded. Both still return `True` on success, so code that checks for a
+  truthy result keeps working; code shaped like
+  `if not manager.update_credential(d): ...` should become a
+  `try` / `except CredentialWriteError`.
+
 ### Added
 
+- **`credentials.CredentialWriteError`** — raised when a credential cannot be
+  written to the Vault. The counterpart to `MissingCredentialsError`, which
+  means a credential could not be read.
 - **`graph.GraphCredentials`** — an app registration's identity, from which
   tokens are minted on demand. Pass one anywhere a Graph helper takes `headers`
   and every request it makes re-mints and retries once on HTTP 401, which fixes
@@ -55,6 +74,14 @@ Releases before 1.15.0 predate this file; see the git history for those.
 
 ### Fixed
 
+- `credentials` (synchronous): `update_credential` raised a bare
+  `IndexError` when no vault entry matched the username, because it indexed
+  the first element of an unchecked filter result. It now raises
+  `MissingCredentialsError`, matching the asynchronous manager, which
+  already guarded this.
+- `credentials` (synchronous): the `PUT` in `update_credential` had no
+  timeout, so a stalled vault could block a caller indefinitely. It now
+  uses the same 30 second timeout as every other call in the module.
 - Wiki: `get_lists` was documented as returning `[]` on error. It has raised
   since 1.13; the page had not caught up.
 - Wiki and docstrings: the usage examples imported `get_auth_headers`, which
