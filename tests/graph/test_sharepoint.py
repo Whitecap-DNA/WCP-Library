@@ -50,8 +50,14 @@ def _called_url(mock):
 
 
 def _called_headers(mock):
-    """Extract the headers argument from a patched _request call."""
-    return mock.call_args[0][2]
+    """Extract the effective headers from a patched _request call.
+
+    Additions for a single call, such as a Content-Type, are passed separately
+    as ``extra_headers`` and merged at send time, so they are merged here too
+    to give what the request will actually carry.
+    """
+    args, kwargs = mock.call_args
+    return {**args[2], **(kwargs.get("extra_headers") or {})}
 
 
 HEADERS = {"Authorization": "Bearer testtoken"}

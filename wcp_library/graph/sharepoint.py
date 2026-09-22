@@ -24,10 +24,10 @@ Functional areas:
         - Full CRUD operations on list items, with optional OData filtering.
 
 Typical usage:
-    from wcp_library.graph import get_auth_headers
+    from wcp_library.graph import get_headers
     from wcp_library.graph.sharepoint import get_site_metadata, upload_file, create_list_item
 
-    headers = get_auth_headers(...)
+    headers = get_headers(...)
     site = get_site_metadata(headers, "https://contoso.sharepoint.com/sites/DataOps")
     upload_file(headers, site["id"], "/Shared Documents/Reports", "report.xlsx", content)
     create_list_item(headers, site["id"], list_id, {"Title": "Q3 Report", "Status": "Draft"})
@@ -49,7 +49,7 @@ from pathlib import Path
 import requests
 from yarl import URL
 
-from wcp_library.graph import _GRAPH_ROOT, _request
+from wcp_library.graph import _GRAPH_ROOT, GraphCredentials, _request
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def _drive_base(site_id: str, drive_id: str | None) -> str:
 
 def _iter_pages(
     url: str,
-    headers: dict,
+    headers: dict | GraphCredentials,
     page_size: int | None = None,
 ) -> list[dict]:
     """GET ``url`` and follow ``@odata.nextLink`` until exhausted.
@@ -97,24 +97,25 @@ def _iter_pages(
 # ----------------------------------- Site Functions ----------------------------------- #
 
 
-def get_site_metadata(headers: dict, site_home_url: str) -> dict:
+def get_site_metadata(headers: dict | GraphCredentials, site_home_url: str) -> dict:
     """Retrieves the site ID from a SharePoint site URL (needs to be the home page)
     API Reference: https://learn.microsoft.com/en-us/graph/api/site-get
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_home_url: The URL of the SharePoint site.
     :return: The site metadata as a JSON object.
     :raises requests.RequestException: If the request fails (including after
         retries are exhausted).
     """
-    url = URL(site_home_url)
-    url = f"{_GRAPH_ROOT}/sites/{url.host}:{url.path}"
+    site = URL(site_home_url)
+    url = f"{_GRAPH_ROOT}/sites/{site.host}:{site.path}"
     response = _request("GET", url, headers)
     return response.json()
 
 
 def get_drives(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     *,
     page_size: int | None = None,
@@ -123,7 +124,8 @@ def get_drives(
 
     API Reference: https://learn.microsoft.com/en-us/graph/api/drive-list
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param page_size: Optional ``$top`` override.
     :return: A list of drive metadata objects across all pages.
@@ -135,14 +137,15 @@ def get_drives(
 
 
 def get_drive_id_by_name(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     drive_name: str,
 ) -> str | None:
     """Resolve a drive ID by display name. Case-sensitive exact match on
     ``name``. Returns ``None`` if the drive is not found.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param drive_name: The display name of the drive.
     :return: The drive ID, or ``None`` if no match.
@@ -160,7 +163,7 @@ def get_drive_id_by_name(
 
 
 def list_folder(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     folder_path: str,
     *,
@@ -169,7 +172,8 @@ def list_folder(
 ) -> list:
     """Lists files in a SharePoint folder using the Microsoft Graph API.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param folder_path: The folder path (e.g. "/Shared Documents/My Folder").
         Use ``"/"`` or ``""`` to list the root of the drive.
@@ -190,7 +194,7 @@ def list_folder(
 
 
 def get_file_metadata(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     file_path: str,
     *,
@@ -198,7 +202,8 @@ def get_file_metadata(
 ) -> dict:
     """Retrieves the file metadata from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
     :param drive_id: Optional drive (document library) ID. If omitted, the
@@ -213,7 +218,7 @@ def get_file_metadata(
 
 
 def get_file_content(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str | None,
     file_path: str | None,
     *,
@@ -229,7 +234,8 @@ def get_file_content(
       uses the site's default drive.
     - **ID-based** (OneDrive): provide ``drive_id`` and ``item_id``.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site (required for path-based).
     :param file_path: The path of the file (e.g. "/Shared Documents/My Folder/file.txt")
         (required for path-based).
@@ -257,7 +263,7 @@ def get_file_content(
 
 
 def download_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     file_path: str,
     download_folder: Path,
@@ -267,7 +273,8 @@ def download_file(
     """Downloads a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file to download (e.g. "/Shared Documents/My Folder/file.txt")
     :param download_folder: Local directory to save the downloaded file into.
@@ -295,7 +302,7 @@ def _ensure_bytes(content: bytes | bytearray | memoryview | str) -> bytes:
 
 
 def upload_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     file_path: str,
     filename: str,
@@ -308,7 +315,8 @@ def upload_file(
     No need to create parent folders.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The location of the file to save (e.g. "Shared Documents/My Folder")
     :param filename: The name of the file to save.
@@ -335,7 +343,7 @@ def upload_file(
 
 
 def upload_multiple_files(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     files: list[tuple[str, str, bytes | bytearray | memoryview | str]],
     conflict_behavior: str = "rename",
@@ -350,15 +358,23 @@ def upload_multiple_files(
     the same as for a single upload; this function adds no retry logic
     of its own.
 
-    A failed upload does not stop the rest of the batch. Each
-    ``requests.RequestException`` (including one that survives all of
-    ``_request``'s retries) is caught per file and reported in the
-    returned list instead of being raised. Any other exception (a bug,
-    not a transient Graph error) still propagates to the caller.
+    Every file is attempted: all uploads are in flight before any result is
+    known, so one failure cannot cancel the others. If any file fails, the
+    successful responses are discarded and an ``ExceptionGroup`` of the
+    failures is raised, each exception carrying a note naming its file.
+    Re-running the whole batch is the intended recovery, and is safe with
+    ``conflict_behavior="replace"``.
+
+    .. versionchanged:: 1.15.0
+        Failures are raised as an ``ExceptionGroup`` rather than returned as
+        ``{"filename": ..., "error": ...}`` entries in the result list. The
+        previous behavior let a batch in which every upload failed look like
+        a batch that had succeeded.
 
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param files: A list of ``(file_path, filename, content)`` tuples. ``file_path`` is the
         destination folder path in SharePoint (e.g., "Shared Documents/My Folder").
@@ -369,12 +385,13 @@ def upload_multiple_files(
         Options are "rename"(default), "replace", or "fail". Applied to every file.
     :param drive_id: Optional drive (document library) ID. If omitted, the
         site's default drive is used.
-    :return: A list of results, one per entry in ``files``, in the same order.
-        On success, the entry is the Graph API response JSON, as returned by
-        :func:`upload_file`. On failure, the entry is
-        ``{"filename": <name>, "error": <the RequestException>}``.
+    :return: A list of the Graph API responses, one per entry in ``files``, in
+        the same order, as returned by :func:`upload_file`.
+    :raises ExceptionGroup: If any upload failed. The group holds one
+        ``requests.RequestException`` per failed file.
     """
     responses: list[dict] = [{} for _ in files]
+    failures: list[tuple[int, Exception]] = []
 
     def _upload_one(index: int, file_path: str, filename: str, content) -> None:
         try:
@@ -388,7 +405,8 @@ def upload_multiple_files(
                 drive_id=drive_id,
             )
         except requests.RequestException as e:
-            responses[index] = {"filename": filename, "error": e}
+            e.add_note(f"file: {file_path}/{filename}")
+            failures.append((index, e))
 
     threads = [
         threading.Thread(target=_upload_one, args=(index, file_path, filename, content))
@@ -399,11 +417,18 @@ def upload_multiple_files(
     for thread in threads:
         thread.join()
 
+    if failures:
+        failures.sort(key=lambda failure: failure[0])
+        raise ExceptionGroup(
+            f"{len(failures)} of {len(files)} uploads to {site_id} failed",
+            [error for _, error in failures],
+        )
+
     return responses
 
 
 def move_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     source_path: str,
     destination_path: str,
@@ -414,7 +439,8 @@ def move_file(
     """Moves a file within a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-move
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param source_path: The current path of the file to move
         (e.g. "/Shared Documents/My Folder/file.txt")
@@ -431,7 +457,8 @@ def move_file(
     response = _request(
         "PATCH",
         url,
-        {**headers, "Content-Type": "application/json"},
+        headers,
+        extra_headers={"Content-Type": "application/json"},
         json=payload,
     )
     response_json = response.json()
@@ -446,7 +473,7 @@ def move_file(
 
 
 def rename_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     file_path: str,
     new_filename: str,
@@ -457,7 +484,8 @@ def rename_file(
         (using the move_file function).
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-move
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The current path of the file to rename
         (e.g. "/Shared Documents/My Folder/file.txt")
@@ -479,7 +507,7 @@ def rename_file(
 
 
 def copy_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     source_path: str,
     destination_path: str,
@@ -490,7 +518,8 @@ def copy_file(
     """Copies a file within a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-copy
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param source_path: The current path of the file to copy
         (e.g. "/Shared Documents/My Folder/file.txt")
@@ -508,7 +537,8 @@ def copy_file(
     response = _request(
         "POST",
         url,
-        {**headers, "Content-Type": "application/json"},
+        headers,
+        extra_headers={"Content-Type": "application/json"},
         json=payload,
     )
     logger.info("%s has been copied to: %s", source_path, destination_path)
@@ -531,7 +561,7 @@ def _build_payload(
 
 
 def remove_file(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     file_path: str,
     *,
@@ -540,7 +570,8 @@ def remove_file(
     """Removes a file from a SharePoint site using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-delete
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param file_path: The path of the file to remove
         (e.g. "/Shared Documents/My Folder/file.txt")
@@ -558,7 +589,7 @@ def remove_file(
 
 
 def get_lists(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     *,
     page_size: int | None = None,
@@ -568,7 +599,8 @@ def get_lists(
 
     Follows ``@odata.nextLink`` to completion.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param page_size: Optional ``$top`` override.
     :return: A list of SharePoint lists as JSON objects across all pages.
@@ -579,11 +611,14 @@ def get_lists(
     return _iter_pages(url, headers, page_size=page_size)
 
 
-def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict:
+def get_list_metadata(
+    headers: dict | GraphCredentials, site_id: str, list_id: str
+) -> dict:
     """Retrieves the metadata of a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/list-get
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :return: The list metadata as a JSON object.
@@ -596,12 +631,16 @@ def get_list_metadata(headers: dict, site_id: str, list_id: str) -> dict:
 
 
 def create_list(
-    headers: dict, site_id: str, list_name: str, list_template: str = "genericList"
+    headers: dict | GraphCredentials,
+    site_id: str,
+    list_name: str,
+    list_template: str = "genericList",
 ) -> dict:
     """Creates a new SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/list-create
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_name: The name of the new SharePoint list.
     :param list_template: The template for the new SharePoint list. Default is "genericList".
@@ -614,17 +653,19 @@ def create_list(
     response = _request(
         "POST",
         url,
-        {**headers, "Content-Type": "application/json"},
+        headers,
+        extra_headers={"Content-Type": "application/json"},
         json=payload,
     )
     return response.json()
 
 
-def remove_list(headers: dict, site_id: str, list_id: str) -> None:
+def remove_list(headers: dict | GraphCredentials, site_id: str, list_id: str) -> None:
     """Removes a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/list-delete
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :raises requests.RequestException: If the request fails (including after
@@ -636,7 +677,7 @@ def remove_list(headers: dict, site_id: str, list_id: str) -> None:
 
 
 def get_list_items(
-    headers: dict,
+    headers: dict | GraphCredentials,
     site_id: str,
     list_id: str,
     odata_filter: str | None = None,
@@ -649,7 +690,8 @@ def get_list_items(
 
     Follows ``@odata.nextLink`` to completion.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param odata_filter: An optional OData filter string to filter the list items.
@@ -676,12 +718,13 @@ def get_list_items(
 
 
 def get_list_item_metadata(
-    headers: dict, site_id: str, list_id: str, item_id: str
+    headers: dict | GraphCredentials, site_id: str, list_id: str, item_id: str
 ) -> dict:
     """Retrieves the metadata of a SharePoint list item using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-get
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param item_id: The ID of the SharePoint list item.
@@ -694,11 +737,14 @@ def get_list_item_metadata(
     return response.json()
 
 
-def create_list_item(headers: dict, site_id: str, list_id: str, fields: dict) -> dict:
+def create_list_item(
+    headers: dict | GraphCredentials, site_id: str, list_id: str, fields: dict
+) -> dict:
     """Creates a new item in a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-create
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param fields: A dictionary containing the field values for the new list item.
@@ -711,19 +757,25 @@ def create_list_item(headers: dict, site_id: str, list_id: str, fields: dict) ->
     response = _request(
         "POST",
         url,
-        {**headers, "Content-Type": "application/json"},
+        headers,
+        extra_headers={"Content-Type": "application/json"},
         json=payload,
     )
     return response.json()
 
 
 def update_list_item(
-    headers: dict, site_id: str, list_id: str, item_id: str, fields: dict
+    headers: dict | GraphCredentials,
+    site_id: str,
+    list_id: str,
+    item_id: str,
+    fields: dict,
 ) -> dict:
     """Updates an existing item in a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-update
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param item_id: The ID of the SharePoint list item.
@@ -736,17 +788,21 @@ def update_list_item(
     response = _request(
         "PATCH",
         url,
-        {**headers, "Content-Type": "application/json"},
+        headers,
+        extra_headers={"Content-Type": "application/json"},
         json=fields,
     )
     return response.json()
 
 
-def remove_list_item(headers: dict, site_id: str, list_id: str, item_id: str) -> None:
+def remove_list_item(
+    headers: dict | GraphCredentials, site_id: str, list_id: str, item_id: str
+) -> None:
     """Removes an item from a SharePoint list using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/listitem-delete
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site.
     :param list_id: The ID of the SharePoint list.
     :param item_id: The ID of the SharePoint list item.

@@ -11,10 +11,10 @@ I/O used only where necessary (e.g., file writes). All functions accept a
 pre-authenticated headers dict containing a valid Bearer token.
 
 Typical usage:
-    from wcp_library.graph import get_auth_headers
+    from wcp_library.graph import get_headers
     from wcp_library.graph.mail import get_emails, get_attachments, save_attachment
 
-    headers = get_auth_headers(...)
+    headers = get_headers(...)
     emails = get_emails(headers, mailbox="user@example.com")
     attachments = get_attachments(headers, mailbox="user@example.com", message_id=emails[0]["id"])
     save_attachment(attachments[0], Path("/tmp/report.xlsx"))
@@ -37,19 +37,20 @@ from typing import Tuple
 
 import aiofiles
 
-from wcp_library.graph import _GRAPH_ROOT, _request
+from wcp_library.graph import _GRAPH_ROOT, GraphCredentials, _request
 
 logger = logging.getLogger(__name__)
 
 
 # ----------------------------------- Mailbox Functions ----------------------------------- #
 def get_mailbox_folders(
-    headers: dict, mailbox: str, parent_folder_id: str | None = None
+    headers: dict | GraphCredentials, mailbox: str, parent_folder_id: str | None = None
 ) -> list[dict]:
     """Lists mailbox folders from the user's mailbox using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/user-list-mailfolders
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :return: A list of mailbox folder metadata as JSON objects.
     """
     url = f"{_GRAPH_ROOT}/users/{mailbox}/mailFolders"
@@ -82,24 +83,33 @@ def parse_email_notification(notification: dict) -> Tuple[str, str]:
     return parts[1], parts[3]  # mailbox, message_id
 
 
-def get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | None:
-    """Retrieves the email details from a Microsoft Graph API response.
+def get_email_metadata(
+    headers: dict | GraphCredentials, mailbox: str, message_id: str
+) -> dict:
+    """Retrieves the details of a single email message.
     API Reference: https://learn.microsoft.com/en-us/graph/api/message-get
 
-    :param headers: The headers containing the Authorization token.
-    :param notification: The Microsoft Graph API response.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
+    :param mailbox: The email address of the mailbox holding the message.
+    :param message_id: The ID of the message to retrieve.
     :return: The email details as a JSON object.
+    :raises requests.RequestException: If the request fails (including after
+        retries are exhausted).
     """
     url = f"{_GRAPH_ROOT}/users/{mailbox}/messages/{message_id}"
     response = _request("GET", url, headers)
     return response.json()
 
 
-def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> list[dict]:
+def get_emails(
+    headers: dict | GraphCredentials, mailbox: str, folder_id: str | None = None
+) -> list[dict]:
     """Lists emails from the user's mailbox using the Microsoft Graph API.
     API Reference: https://learn.microsoft.com/en-us/graph/api/user-list-messages
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param mailbox: The user's mailbox.
     :param folder_id: The ID of the folder to list emails from. If None, lists from the root folder.
     :return: A list of email metadata as JSON objects.
@@ -114,11 +124,14 @@ def get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> lis
     return data.get("value", [])
 
 
-def get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]:
+def get_attachments(
+    headers: dict | GraphCredentials, mailbox: str, message_id: str
+) -> list[dict]:
     """Fetch attachments from Microsoft Graph and include name/extension info.
     API Reference: https://learn.microsoft.com/en-us/graph/api/message-list-attachments
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param mailbox: The user's mailbox.
     :param message_id: The ID of the message to fetch attachments for.
     :return: A list of dictionaries containing the attachment details.
