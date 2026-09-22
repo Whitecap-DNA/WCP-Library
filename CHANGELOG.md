@@ -61,6 +61,10 @@ Releases before 1.15.0 predate this file; see the git history for those.
   does not exist. They now import `get_headers`.
 - `graph.mail.get_email_metadata` documented a `notification` parameter it does
   not take, and omitted its `mailbox`, `message_id`, and `:raises:` entries.
+- `graph.mail.get_mailbox_folders` did not document `mailbox` or
+  `parent_folder_id`, and `graph.mail.save_attachment` wrote its parameter
+  types inside the parameter names (`:param source (dict | bytes):`) and did
+  not document the `TypeError` it raises.
 - `graph.subscription` module docstring carried a note asking for its error
   contract to be reconciled with `_GraphRetriable`'s docstring, which had
   already been done.

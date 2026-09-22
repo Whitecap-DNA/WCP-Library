@@ -51,7 +51,12 @@ def get_mailbox_folders(
 
     :param headers: The headers containing the Authorization token, or a
         ``GraphCredentials`` to mint and re-mint them.
+    :param mailbox: The user's mailbox.
+    :param parent_folder_id: If given, lists the child folders of that folder
+        instead of the top-level folders of the mailbox.
     :return: A list of mailbox folder metadata as JSON objects.
+    :raises requests.RequestException: If the request fails (including after
+        retries are exhausted).
     """
     url = f"{_GRAPH_ROOT}/users/{mailbox}/mailFolders"
     if parent_folder_id:
@@ -152,8 +157,10 @@ def get_attachments(
 def save_attachment(source: dict | bytes, location: Path) -> None:
     """Saves an attachment to a file at the specified location.
 
-    :param source (dict | bytes): A dictionary or bytes object containing the attachment details.
-    :param location (Path): The path to save the attachment to.
+    :param source: A Graph attachment object, whose base64 ``contentBytes``
+        field is decoded, or the raw attachment bytes.
+    :param location: The path to write the attachment to.
+    :raises TypeError: If ``source`` is neither a dictionary nor bytes.
     """
 
     async def _save(content_bytes: bytes, location: Path) -> None:
