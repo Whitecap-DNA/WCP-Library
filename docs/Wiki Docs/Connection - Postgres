@@ -156,9 +156,11 @@ PostgresConnection.remove_matching_data(df=data_df, table_name="test_table", mat
 
 `def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
-"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connections#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database.
+"export_df_to_warehouse" is an extension of [execute_many](#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database.
 
 It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
+
+Returns the number of records inserted, or `0` when the DataFrame is empty. Raises `ValueError` if `columns` is empty, or if it is not a subset of the DataFrame's columns.
 
 Postgres often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
 
@@ -177,9 +179,11 @@ PostgresConnection.export_df_to_warehouse(df=data_df, table_name="test_table", c
 
 `def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:`
 
-"upsert_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connections#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database. Unlike "export_df_to_warehouse", this function provides upsert functionality on conflict. The output table needs to have primary keys, and the match_cols list should match those.
+"upsert_df_to_warehouse" is an extension of [execute_many](#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database. Unlike "export_df_to_warehouse", this function provides upsert functionality on conflict. The output table needs to have primary keys, and the match_cols list should match those.
 
 It takes in the parameters: pandas DF, output table name, column list, match column list, and an optional bool to remove_nan values from export.
+
+Returns the number of records **sent to the server**, or `0` when the DataFrame is empty. That is not necessarily the number of rows changed: when `columns` and `match_cols` are identical there is nothing to update, so the conflict action becomes `DO NOTHING` and conflicting rows are left alone. Raises `ValueError` if `columns` or `match_cols` is empty, or if `match_cols` is not a subset of `columns`.
 
 Postgres often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
 
@@ -446,9 +450,11 @@ await PostgresConnection.remove_matching_data(df=data_df, table_name="test_table
 
 `async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
-"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connection#execute_many-1) that does the work for you, to export a pandas dataframe to the Postgres database.
+"export_df_to_warehouse" is an extension of [execute_many](#execute_many-1) that does the work for you, to export a pandas dataframe to the Postgres database.
 
 It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
+
+Returns the number of records inserted, or `0` when the DataFrame is empty. Raises `ValueError` if `columns` is empty, or if it is not a subset of the DataFrame's columns.
 
 Postgres often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
 
@@ -467,9 +473,11 @@ await PostgresConnection.export_df_to_warehouse(df=data_df, table_name="test_tab
 
 `async def upsert_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, match_cols: list, remove_nan=False) -> int:`
 
-"upsert_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Postgres-Connections#execute_many) that does the work for you, to export a pandas dataframe to the Postgres database. Unlike "export_df_to_warehouse", this function provides upsert functionality on conflict. The output table needs to have primary keys, and the match_cols list should match those.
+"upsert_df_to_warehouse" is an extension of [execute_many](#execute_many-1) that does the work for you, to export a pandas dataframe to the Postgres database. Unlike "export_df_to_warehouse", this function provides upsert functionality on conflict. The output table needs to have primary keys, and the match_cols list should match those.
 
 It takes in the parameters: pandas DF, output table name, column list, match column list, and an optional bool to remove_nan values from export.
+
+Returns the number of records **sent to the server**, or `0` when the DataFrame is empty. That is not necessarily the number of rows changed: when `columns` and `match_cols` are identical there is nothing to update, so the conflict action becomes `DO NOTHING` and conflicting rows are left alone. Raises `ValueError` if `columns` or `match_cols` is empty, or if `match_cols` is not a subset of `columns`.
 
 Postgres often has issues accepting nan values, especially into number and float columns, it's often advisable to set this to true.
 

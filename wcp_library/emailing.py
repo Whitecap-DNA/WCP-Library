@@ -66,7 +66,8 @@ class MailServer:
         :raises ValueError: If *sender* is not in the approved-senders list, or
             *body_type* is not ``"plain"`` or ``"html"``.
         :raises FileNotFoundError: If a :class:`pathlib.Path` attachment does not exist.
-        :raises TypeError: If an attachment item has an unexpected type.
+        :raises TypeError: If an attachment is neither a :class:`pathlib.Path`
+            nor a ``(filename, data)`` tuple.
         """
         logger.debug("Preparing email — subject: '%s', sender: '%s'.", subject, sender)
 
@@ -151,7 +152,8 @@ class MailServer:
         :raises ValueError: If *sender* is not in the approved-senders list, or
             any address fails validation (raised by :meth:`send_email`).
         :raises FileNotFoundError: If a :class:`pathlib.Path` attachment does not exist.
-        :raises TypeError: If an attachment item has an unexpected type.
+        :raises TypeError: If an attachment is neither a :class:`pathlib.Path`
+            nor a ``(filename, data)`` tuple.
         """
         logger.debug(
             "Sending error report — project: '%s', subject: '%s'.", project, subject,

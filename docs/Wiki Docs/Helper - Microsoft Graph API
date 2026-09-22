@@ -691,7 +691,7 @@ mailbox, message_id = parse_email_notification(notification)
 
 ### get_email_metadata
 
-`get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | None`
+`get_email_metadata(headers: dict | GraphCredentials, mailbox: str, message_id: str) -> dict`
 
 Retrieve the full metadata of a specific email message.
 

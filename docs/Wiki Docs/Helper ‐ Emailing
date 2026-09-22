@@ -122,6 +122,12 @@ Sends a styled HTML error-report email: a red banner with the subject, a project
 - `bcc` (list[str] | str | None): Optional blind carbon-copy recipients.
 - `attachments` (list[Path | tuple[str, bytes]] | None): Optional attachments — same shape as `send_email()`.
 
+#### Raises
+
+- `ValueError`: If `sender` is not in the approved-senders list, or any address (sender, recipient, cc, or bcc) fails the `EMAIL_PATTERN` format check.
+- `FileNotFoundError`: If a `Path` attachment does not exist on disk.
+- `TypeError`: If an attachment item is neither a `Path` nor a `(str, bytes)` tuple.
+
 #### Behavior
 
 - Uses `send_email()` internally, with `body_type="html"`.
