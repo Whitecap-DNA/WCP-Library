@@ -43,7 +43,7 @@ Error handling contract:
 
 Typical usage:
     from wcp_library.graph import get_headers
-    from wcp_library.graph.subscriptions import create_subscription, update_subscription_expiration
+    from wcp_library.graph.subscription import create_subscription, update_subscription_expiration
 
     headers = get_headers(...)
     create_subscription(
@@ -69,40 +69,13 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from wcp_library.graph import _GRAPH_ROOT, RENEWAL_THRESHOLD, GraphCredentials, _request
+from wcp_library.graph import (_GRAPH_ROOT, RENEWAL_THRESHOLD,
+                               GraphCredentials, _iter_pages, _request)
 
 logger = logging.getLogger(__name__)
 
 
-def _iter_pages(
-    url: str, headers: dict | GraphCredentials, page_size: int | None = None
-) -> list[dict]:
-    """GET ``url`` and follow ``@odata.nextLink`` until exhausted.
-
-    Returns the concatenated ``value`` arrays from every page.
-
-    :param url: The initial URL to request.
-    :param headers: The headers containing the Authorization token, or a
-        ``GraphCredentials`` to mint and re-mint them.
-    :param page_size: If given, appended as ``$top`` on the first request.
-        Graph echoes this on subsequent ``@odata.nextLink`` URLs, so it only
-        needs to be set once.
-    :return: The concatenated items across all pages.
-    :raises requests.RequestException: If any paged request fails (including
-        after retries are exhausted).
-    """
-    if page_size is not None:
-        sep = "&" if "?" in url else "?"
-        url = f"{url}{sep}$top={page_size}"
-
-    items: list[dict] = []
-    next_url: str | None = url
-    while next_url:
-        response = _request("GET", next_url, headers)
-        data = response.json()
-        items.extend(data.get("value", []))
-        next_url = data.get("@odata.nextLink")
-    return items
+# ----------------------------------- Subscription Functions ----------------------------------- #
 
 
 def create_subscription(
@@ -216,6 +189,9 @@ def list_subscriptions(
     return _iter_pages(url, headers, page_size=page_size)
 
 
+# ----------------------------------- Renewal Functions ----------------------------------- #
+
+
 def update_subscription_expiration(
     headers: dict | GraphCredentials, subscription_id: str
 ) -> dict:
@@ -229,7 +205,7 @@ def update_subscription_expiration(
     :raises requests.RequestException: If the HTTP request fails.
     """
     subscription = get_subscription(headers, subscription_id)
-    resource_type = _get_resource_type(subscription.get("resource", ""))
+    resource_type = get_resource_type(subscription.get("resource", ""))
     expiration_datetime = _calculate_expiration_datetime(resource_type)
 
     url = f"{_GRAPH_ROOT}/subscriptions/{subscription_id}"
@@ -294,6 +270,9 @@ def renew_expiring_subscriptions(
     return renewed
 
 
+# ----------------------------------- Resource Type Inference ----------------------------------- #
+
+
 def _calculate_expiration_datetime(resource_type: str) -> str:
     """Calculates the expiration date for a subscription in ISO 8601 format.
 
@@ -326,7 +305,7 @@ def _calculate_expiration_datetime(resource_type: str) -> str:
     )
 
 
-def _get_resource_type(resource: str) -> str:
+def get_resource_type(resource: str) -> str:
     """Infers a subscription's resource type from its Graph resource path.
 
     :param resource: The Graph resource path (e.g. "users/{id}/messages").
@@ -354,6 +333,9 @@ def _get_resource_type(resource: str) -> str:
         if key in resource.lower():
             return value
     return "default"
+
+
+# ----------------------------------- Lifecycle Management ----------------------------------- #
 
 
 def delete_subscription(headers: dict | GraphCredentials, subscription_id: str) -> None:
@@ -406,7 +388,7 @@ def recreate_subscription(
     return create_subscription(
         headers,
         subscription.get("notificationUrl"),
-        _get_resource_type(resource),
+        get_resource_type(resource),
         resource,
         subscription.get("changeType"),
         subscription.get("clientState"),
