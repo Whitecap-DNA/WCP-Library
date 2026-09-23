@@ -4,7 +4,8 @@ from abc import ABC,abstractmethod
 import aiohttp
 from yarl import URL
 
-from wcp_library.credentials import MissingCredentialsError
+from wcp_library.credentials import (CredentialWriteError,
+                                     MissingCredentialsError)
 
 logger = logging.getLogger(__name__)
 
@@ -90,22 +91,29 @@ class AsyncCredentialManager(ABC):
         """
         Publish a new password to the password list
 
-        :param data:
-        :return:
+        :param data: The entry to create, as the vault API expects it.
+        :return: True. Failure raises rather than being returned.
+        :raises CredentialWriteError: If the vault rejects the new entry or the
+            request fails.
         """
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(str(self.password_url), json=data, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    if response.status == 201:
-                        logger.debug(f"New credentials for {data['UserName']} created")
-                        return True
-                    else:
-                        logger.error(f"Failed to create new credentials for {data['UserName']}: HTTP {response.status}")
-                        return False
+                    status = response.status
         except aiohttp.ClientError as e:
-            logger.error(f"Error creating credentials for {data['UserName']}: {e}")
-            return False
+            raise CredentialWriteError(
+                f"Error creating credentials for {data['UserName']}: {e}"
+            ) from e
+
+        if status != 201:
+            raise CredentialWriteError(
+                f"Failed to create new credentials for {data['UserName']}: "
+                f"HTTP {status}"
+            )
+
+        logger.debug(f"New credentials for {data['UserName']} created")
+        return True
 
     async def get_credentials(self, username: str) -> dict:
         """
@@ -178,15 +186,20 @@ class AsyncCredentialManager(ABC):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.put(str(self.password_url), json=credentials_dict, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                    if response.status == 200:
-                        logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
-                        return True
-                    else:
-                        logger.error(f"Failed to update credentials for {credentials_dict['UserName']}: HTTP {response.status}")
-                        return False
+                    status = response.status
         except aiohttp.ClientError as e:
-            logger.error(f"Error updating credentials for {credentials_dict['UserName']}: {e}")
-            return False
+            raise CredentialWriteError(
+                f"Error updating credentials for {credentials_dict['UserName']}: {e}"
+            ) from e
+
+        if status != 200:
+            raise CredentialWriteError(
+                f"Failed to update credentials for {credentials_dict['UserName']}: "
+                f"HTTP {status}"
+            )
+
+        logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
+        return True
 
     @abstractmethod
     async def new_credentials(self, credentials_dict: dict) -> bool:

@@ -39,17 +39,13 @@ Error handling contract:
     ``wcp_library.graph._request`` and does **not** catch
     ``requests.RequestException`` itself — the exception propagates to the
     caller after retries (if any) are exhausted by ``_request``. This is the
-    behavior callers should rely on today. Note that this differs from the
-    "returns None on exhausted retries" contract described in
-    ``wcp_library.graph.retry``'s ``_GraphRetriable`` docstring; that
-    docstring should be updated to match this module's actual behavior (or
-    this module should be changed to match it) so the two don't drift apart.
+    behavior callers should rely on today.
 
 Typical usage:
-    from wcp_library.graph import get_auth_headers
+    from wcp_library.graph import get_headers
     from wcp_library.graph.subscriptions import create_subscription, update_subscription_expiration
 
-    headers = get_auth_headers(...)
+    headers = get_headers(...)
     create_subscription(
         headers,
         notification_url="https://my-relay-endpoint.example.com",
@@ -73,18 +69,21 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from wcp_library.graph import _GRAPH_ROOT, RENEWAL_THRESHOLD, _request
+from wcp_library.graph import _GRAPH_ROOT, RENEWAL_THRESHOLD, GraphCredentials, _request
 
 logger = logging.getLogger(__name__)
 
 
-def _iter_pages(url: str, headers: dict, page_size: int | None = None) -> list[dict]:
+def _iter_pages(
+    url: str, headers: dict | GraphCredentials, page_size: int | None = None
+) -> list[dict]:
     """GET ``url`` and follow ``@odata.nextLink`` until exhausted.
 
     Returns the concatenated ``value`` arrays from every page.
 
     :param url: The initial URL to request.
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param page_size: If given, appended as ``$top`` on the first request.
         Graph echoes this on subsequent ``@odata.nextLink`` URLs, so it only
         needs to be set once.
@@ -107,7 +106,7 @@ def _iter_pages(url: str, headers: dict, page_size: int | None = None) -> list[d
 
 
 def create_subscription(
-    headers: dict,
+    headers: dict | GraphCredentials,
     notification_url: str,
     resource_type: str,
     resource: str,
@@ -121,7 +120,8 @@ def create_subscription(
     """Creates a subscription to Microsoft Graph resources.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-post-subscriptions
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param notification_url: The URL to receive notifications.
     :param resource_type: The type of resource to subscribe to (e.g. "mail", "calendar",
         "contacts", "onedrive", "sharepoint", "directory", "teams", "presence", "print",
@@ -180,11 +180,12 @@ def create_subscription(
     return subscription
 
 
-def get_subscription(headers: dict, subscription_id: str) -> dict:
+def get_subscription(headers: dict | GraphCredentials, subscription_id: str) -> dict:
     """Retrieves a subscription by ID.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-get
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to retrieve.
     :return: A dictionary containing the subscription details.
     :raises requests.RequestException: If the HTTP request fails.
@@ -194,7 +195,9 @@ def get_subscription(headers: dict, subscription_id: str) -> dict:
     return response.json()
 
 
-def list_subscriptions(headers: dict, *, page_size: int | None = None) -> list[dict]:
+def list_subscriptions(
+    headers: dict | GraphCredentials, *, page_size: int | None = None
+) -> list[dict]:
     """List all active subscriptions for the authenticated client.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-list
 
@@ -202,7 +205,8 @@ def list_subscriptions(headers: dict, *, page_size: int | None = None) -> list[d
     returned even once the number of active subscriptions grows beyond a
     single page.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param page_size: Optional ``$top`` override.
     :return: A list of dictionaries containing the subscriptions across all pages.
     :raises requests.RequestException: If any paged request fails (including
@@ -212,11 +216,14 @@ def list_subscriptions(headers: dict, *, page_size: int | None = None) -> list[d
     return _iter_pages(url, headers, page_size=page_size)
 
 
-def update_subscription_expiration(headers: dict, subscription_id: str) -> dict:
+def update_subscription_expiration(
+    headers: dict | GraphCredentials, subscription_id: str
+) -> dict:
     """Renews a subscription by updating its expiration date time.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-update
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to renew.
     :return: A dictionary containing the updated subscription details.
     :raises requests.RequestException: If the HTTP request fails.
@@ -239,7 +246,7 @@ def update_subscription_expiration(headers: dict, subscription_id: str) -> dict:
 
 
 def renew_expiring_subscriptions(
-    headers: dict, threshold_minutes: int = RENEWAL_THRESHOLD
+    headers: dict | GraphCredentials, threshold_minutes: int = RENEWAL_THRESHOLD
 ) -> list[dict]:
     """Renews every active subscription expiring within ``threshold_minutes``.
 
@@ -247,10 +254,14 @@ def renew_expiring_subscriptions(
     proactively renewed before Graph lets them lapse, rather than relying on
     lifecycle/reauthorization notifications alone.
 
-    A failure renewing one subscription is logged and does not prevent the
-    remaining subscriptions from being processed.
+    A failure renewing one subscription is logged with a traceback and does
+    not prevent the remaining subscriptions from being processed. This is a
+    deliberate exception to the error-handling contract above: a sweep that
+    aborted halfway would leave the remaining subscriptions to lapse. The
+    failure is logged rather than hidden, so nothing here is silent.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param threshold_minutes: How far into the future to look for subscriptions
         that are about to expire. Defaults to ``RENEWAL_THRESHOLD``.
     :return: A list of the subscription objects that were successfully renewed.
@@ -345,10 +356,11 @@ def _get_resource_type(resource: str) -> str:
     return "default"
 
 
-def delete_subscription(headers: dict, subscription_id: str) -> None:
+def delete_subscription(headers: dict | GraphCredentials, subscription_id: str) -> None:
     """Deletes a subscription by ID.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to delete.
     :raises requests.RequestException: If the HTTP request fails.
     """
@@ -357,7 +369,9 @@ def delete_subscription(headers: dict, subscription_id: str) -> None:
     logger.info("Subscription %s has been deleted", subscription_id)
 
 
-def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
+def reauthorize_subscription(
+    headers: dict | GraphCredentials, subscription_id: str
+) -> None:
     """Reauthorizes a subscription by ID.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-reauthorize
 
@@ -365,7 +379,8 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     unlike the other mutating functions in this module there is nothing
     meaningful to return.
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to reauthorize.
     :raises requests.RequestException: If the HTTP request fails.
     """
@@ -374,11 +389,14 @@ def reauthorize_subscription(headers: dict, subscription_id: str) -> None:
     logger.info("Subscription %s has been reauthorized", subscription_id)
 
 
-def recreate_subscription(headers: dict, subscription_id: str) -> dict:
+def recreate_subscription(
+    headers: dict | GraphCredentials, subscription_id: str
+) -> dict:
     """Recreates a subscription by ID.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-post-subscriptions
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to recreate.
     :return: The newly created subscription as a JSON object.
     :raises requests.RequestException: If the HTTP request fails.
@@ -396,12 +414,13 @@ def recreate_subscription(headers: dict, subscription_id: str) -> dict:
 
 
 def update_notification_url(
-    headers: dict, subscription_id: str, new_notification_url: str
+    headers: dict | GraphCredentials, subscription_id: str, new_notification_url: str
 ) -> dict:
     """Changes the notification URL of an existing subscription.
     API Reference: https://learn.microsoft.com/en-us/graph/api/subscription-update
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param subscription_id: The ID of the subscription to update.
     :param new_notification_url: The new notification URL to set.
     :return: The updated subscription as a JSON object.

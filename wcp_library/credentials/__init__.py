@@ -6,6 +6,16 @@ class MissingCredentialsError(KeyError):
     pass
 
 
+class CredentialWriteError(Exception):
+    """Raised when a credential could not be written to the Vault.
+
+    The counterpart to :class:`MissingCredentialsError`, which means a
+    credential could not be *read*. Writes used to report failure by
+    returning ``False``, which a caller had to remember to check; since
+    1.15.0 they raise.
+    """
+
+
 def generate_password(length: int=12, use_nums: bool=True, use_special: bool=True, special_chars_override: str | None=None, force_num: bool=True, force_spec: bool=True, max_attempts: int=1000) -> str:
     """
     Function to generate a random password

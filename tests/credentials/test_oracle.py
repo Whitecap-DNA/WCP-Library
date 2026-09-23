@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from wcp_library.credentials import CredentialWriteError
+
 from wcp_library.credentials.oracle import (
     AsyncOracleCredentialManager,
     OracleCredentialManager,
@@ -72,10 +74,12 @@ class TestOracleNewCredentials:
             mgr.new_credentials(_sample(Title="primary"))
         assert mock_pub.call_args.args[0]["Title"] == "PRIMARY"
 
-    def test_publish_false_propagates(self):
+    def test_publish_failure_propagates(self):
         mgr = OracleCredentialManager("k")
-        with patch.object(mgr, "_publish_new_password", return_value=False):
-            assert mgr.new_credentials(_sample()) is False
+        with patch.object(mgr, "_publish_new_password",
+                          side_effect=CredentialWriteError("vault said no")):
+            with pytest.raises(CredentialWriteError, match="vault said no"):
+                mgr.new_credentials(_sample())
 
 
 class TestAsyncOracleConstruction:

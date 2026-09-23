@@ -2,9 +2,23 @@
 
 This library provides a structured and extensible framework for interacting with the Microsoft Graph API. It includes standardized authentication, and dedicated modules for SharePoint operations, email/mailbox management, and subscription lifecycle management, making it ideal for robust automation and integration workflows.
 
+## Breaking changes in 1.15.0
+
+`upload_multiple_files` now **raises** an `ExceptionGroup` when any file in the
+batch fails, instead of returning `{"filename": ..., "error": ...}` entries in
+its result list. The old behaviour let a batch in which every upload failed look
+like a batch that had succeeded — including when the cause was an expired token
+— which is exactly the silent failure the 1.13+ error contract exists to
+prevent. If you called it and inspected the result entries for errors, wrap the
+call in `try/except ExceptionGroup` instead.
+
+Everything else in 1.15.0 is additive: `GraphCredentials` is new, and the
+`headers` parameter of every helper now also accepts a `GraphCredentials` in
+place of a dictionary.
+
 ## Authentication (`__init__`)
 
-This module defines the foundational configuration and authentication for the Microsoft Graph API. It provides a shared `get_headers` function that acquires an OAuth2 Bearer token using client credentials, a `get_headers_from_vault` convenience wrapper for app registrations whose credentials live in the Password Vault, along with module-level constants for request timeouts and subscription renewal thresholds.
+This module defines the foundational configuration and authentication for the Microsoft Graph API. It provides a shared `get_headers` function that acquires an OAuth2 Bearer token using client credentials, a `get_headers_from_vault` convenience wrapper for app registrations whose credentials live in the Password Vault, a `GraphCredentials` class for processes that outlive a single token, along with module-level constants for request timeouts and subscription renewal thresholds.
 
 ### Key Features
 
@@ -12,6 +26,7 @@ This module defines the foundational configuration and authentication for the Mi
 - Vault-backed authentication — `get_headers_from_vault` needs only the vault API key and the credential ID, and resolves the app id, secret, and tenant id for you.
 - Centralized `Authorization` header generation for all Graph API calls.
 - Token acquisition failures raise `GraphAuthError` naming the Azure AD error code and description, instead of handing back a header containing `None`.
+- Token expiry handled for you — pass a `GraphCredentials` instead of a headers dict and every call re-mints and retries once on HTTP 401.
 - Configurable request timeout and subscription renewal threshold.
 
 ## SharePoint
@@ -75,6 +90,25 @@ Up to 5 attempts total. When tenacity exhausts the budget, `_GraphRetriable` (a 
 
 Policy defined in `wcp_library.retry.graph_retry_kwargs`.
 
+## Token Expiry
+
+An access token is valid for roughly an hour, and a 401 is **not** in the
+retryable set above: a stale token is not a transient condition that waiting
+fixes. A process that mints one headers dict at startup and runs for longer than
+the token's lifetime will therefore see every subsequent Graph call fail, all of
+them raising `requests.HTTPError` — indistinguishable at the call site from a
+permissions problem.
+
+Pass a `GraphCredentials` in place of the headers dict and this is handled per
+request: on a 401 the token is re-minted and the request is retried once. The
+unit retried is the request, not your operation, so a paginating helper resumes
+at the page it was on, and a multi-file upload does not repeat the files that
+already landed.
+
+HTTP 403 is deliberately **not** retried. A permission the app registration
+lacks is refused identically with a fresh token, so retrying it would only turn
+a configuration error into a slow one.
+
 # Usage
 
 ## Authentication
@@ -102,6 +136,25 @@ headers = get_headers_from_vault("<vault-internet-api-key>", <credential-id>)
 ```
 
 The vault entry is expected to carry the app (client) ID in `UserName`, the client secret in `Password`, and a `URL` whose final path segment is the tenant ID.
+
+### For processes that run longer than an hour
+
+`get_headers` and `get_headers_from_vault` hand back a plain dictionary whose
+token expires after roughly an hour. For anything longer — a long download, a
+scheduled sweep, a flow that waits on an external system — build a
+`GraphCredentials` and pass that instead. Every helper accepts it wherever it
+accepts `headers`.
+
+```python
+from wcp_library.graph import GraphCredentials
+from wcp_library.graph.sharepoint import list_folder, upload_file
+
+credentials = GraphCredentials.from_vault("<vault-internet-api-key>", <credential-id>)
+
+# Hours later, this still works: the token is re-minted on demand.
+items = list_folder(credentials, site_id, "/Shared Documents/Staging")
+upload_file(credentials, site_id, "/Shared Documents/Staging", "report.xlsx", file_bytes)
+```
 
 ## SharePoint Example
 
@@ -262,6 +315,43 @@ Raises `GraphAuthError` if the credential cannot be retrieved from the vault, an
 headers = get_headers_from_vault(vault_internet_api_key, credential_id)
 ```
 
+### GraphCredentials
+
+`class GraphCredentials`
+
+An app registration's identity, from which tokens are minted on demand. Pass an
+instance anywhere a helper takes `headers` and every request it makes gains
+token-expiry handling. Use it for any process that may outlive a single token;
+`get_headers` and `get_headers_from_vault` remain the right choice for
+short-lived callers.
+
+Constructed through one of two named constructors:
+
+- `GraphCredentials.from_vault(api_key: str, credential_id: int | str)` — for app registrations stored in Password State. The vault is re-read on every mint, so a rotated client secret is picked up by an already-running process instead of stranding it.
+- `GraphCredentials.from_app_registration(app_id: str, app_secret: str, tenant_id: str)` — for callers who already hold these values and would otherwise call `get_headers` directly.
+
+Members:
+
+- `headers -> dict` — the live headers dictionary. It is the same object for the life of the credentials and is updated **in place** on a re-mint, so a closure, a queued coroutine, or an `asyncio.to_thread` call already in flight keeps working without being handed a replacement. Reach for this only when calling Graph outside this library, where nothing will re-mint on your behalf.
+- `generation -> int` — how many tokens this object has minted.
+- `refresh(seen_generation: int) -> int` — re-mint, unless another caller has already replaced the token that `seen_generation` refers to.
+- `call(operation)` — run one Graph operation, re-minting once on a 401. An escape hatch for Graph calls this library does not wrap; anything going through a `sharepoint`, `mail`, or `subscription` helper needs no wrapping. `operation` must be safe to run twice.
+
+Instances are safe to share between threads: concurrent callers that all met the
+same expired token produce a single re-mint between them, not one each. Minting
+is retried on transient failure and raises `GraphAuthError` when it gives up.
+
+```python
+from wcp_library.graph import GraphCredentials
+from wcp_library.graph.sharepoint import list_folder
+
+credentials = GraphCredentials.from_vault(vault_internet_api_key, credential_id)
+items = list_folder(credentials, site_id, "/Shared Documents")
+
+# For a Graph endpoint this library does not wrap:
+result = credentials.call(lambda headers: my_own_graph_call(headers, ...))
+```
+
 ### GraphAuthError
 
 `class GraphAuthError(Exception)`
@@ -383,6 +473,37 @@ upload_file(headers, site_id, "/Shared Documents/Reports", "report.xlsx", file_b
 upload_file(headers, site_id, "/2026/04/20", "invoice.pdf", file_bytes, drive_id=drive_id)
 ```
 
+### upload_multiple_files
+
+`upload_multiple_files(headers: dict | GraphCredentials, site_id: str, files: list[tuple[str, str, bytes | bytearray | memoryview | str]], conflict_behavior: str = "rename", *, drive_id: str | None = None) -> list[dict]`
+
+Upload several files to the same SharePoint folder in parallel, one thread per
+file, each through `upload_file`. Takes `(file_path, filename, content)` tuples
+and returns the Graph responses in the same order.
+
+Every file is attempted: all uploads are in flight before any result is known,
+so one failure cannot cancel the others. **If any file fails, an
+`ExceptionGroup` is raised** holding one `requests.RequestException` per failed
+file, each carrying a note naming its file, and the successful responses are
+discarded. Re-running the whole batch is the intended recovery and is safe with
+`conflict_behavior="replace"`.
+
+Changed in 1.15.0 — see [Breaking changes in 1.15.0](#breaking-changes-in-1150).
+
+```python
+try:
+    upload_multiple_files(
+        credentials,
+        site_id,
+        [("/Shared Documents/Staging", "a.csv", a_bytes),
+         ("/Shared Documents/Staging", "b.csv", b_bytes)],
+        conflict_behavior="replace",
+    )
+except* requests.RequestException as failures:
+    for error in failures.exceptions:
+        logger.error("upload failed: %s", error)
+```
+
 ### download_file
 
 `download_file(headers: dict, site_id: str, file_path: str, download_folder: Path, *, drive_id: str | None = None) -> Path | None`
@@ -440,7 +561,7 @@ remove_file(headers, site_id, "/Shared Documents/My Folder/file.txt")
 
 `get_lists(headers: dict, site_id: str, *, page_size: int | None = None) -> list[dict]`
 
-Retrieve all lists from a SharePoint site. Follows `@odata.nextLink` across all pages. Returns `[]` on error. An optional `page_size` tunes the Graph `$top` value on the initial request.
+Retrieve all lists from a SharePoint site. Follows `@odata.nextLink` across all pages. Raises `requests.RequestException` on HTTP errors or exhausted retries. An optional `page_size` tunes the Graph `$top` value on the initial request.
 
 ```python
 get_lists(headers, site_id)
@@ -570,7 +691,7 @@ mailbox, message_id = parse_email_notification(notification)
 
 ### get_email_metadata
 
-`get_email_metadata(headers: dict, mailbox: str, message_id: str) -> dict | None`
+`get_email_metadata(headers: dict | GraphCredentials, mailbox: str, message_id: str) -> dict`
 
 Retrieve the full metadata of a specific email message.
 

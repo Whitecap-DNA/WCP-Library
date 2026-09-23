@@ -147,7 +147,7 @@ OracleConnection.remove_matching_data(df=data_df, table_name="test_table", match
 
 `def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
-"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Oracle-Connection#execute_many) that does the work for you, to export a pandas dataframe to the Oracle database.
+"export_df_to_warehouse" is an extension of [execute_many](#execute_many) that does the work for you, to export a pandas dataframe to the Oracle database.
 
 It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
 
@@ -348,7 +348,7 @@ await OracleConnection.remove_matching_data(df=data_df, table_name="test_table",
 
 `async def export_df_to_warehouse(self, df: pd.DataFrame, table_name: str, columns: list, remove_nan=False) -> int:`
 
-"export_df_to_warehouse" is an extension of [execute_many](https://github.com/Whitecap-DNA/WCP-Library/wiki/Oracle-Connection#execute_many-1) that does the work for you, to export a pandas dataframe to the Oracle database.
+"export_df_to_warehouse" is an extension of [execute_many](#execute_many-1) that does the work for you, to export a pandas dataframe to the Oracle database.
 
 It takes in the parameters: pandas DF, output table name, column list, and an optional bool to remove_nan values from export.
 

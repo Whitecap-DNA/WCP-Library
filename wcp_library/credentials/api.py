@@ -23,7 +23,9 @@ class APICredentialManager(CredentialManager):
             - URL
 
         :param credentials_dict:
-        :return: True if successful, False otherwise
+        :return: True. Failure raises rather than being returned.
+        :raises CredentialWriteError: If the vault rejects the new entry or
+            the request fails.
         """
 
         data = {

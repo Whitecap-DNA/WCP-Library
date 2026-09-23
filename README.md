@@ -19,7 +19,6 @@ Requires Python 3.12 or newer.
 | `wcp_library.graph` | Microsoft Graph helpers: authentication, SharePoint sites/files/lists, Outlook mail and attachments, and webhook subscription lifecycle management. |
 | `wcp_library.browser_automation` | Selenium sessions for Chrome, Firefox, and Edge, plus locator-based and `WebElement`-based interaction helpers. |
 | `wcp_library.emailing` | `MailServer` for sending mail through SMTP2GO, including a styled HTML error report. |
-| `wcp_library.informatica` | `InformaticaSession` for running and monitoring Informatica Cloud tasks. |
 | `wcp_library.logging` | `create_log` for standard file and console logging setup. |
 | `wcp_library.time` | Timezone-aware current time, timezone conversion, and UTC/local timestamp helpers. |
 | `wcp_library.retry` | Tenacity retry strategies shared by the SQL, Graph, and browser automation modules. |
