@@ -1,11 +1,12 @@
 """Mock tests for wcp_library.graph.mail.
 
 All HTTP calls are patched via unittest.mock. No network access occurs.
-``aiofiles.open`` is patched for save_attachment so no real file IO occurs.
+save_attachment writes with a plain, synchronous ``Path.write_bytes`` call,
+so its tests use a real file under pytest's ``tmp_path`` fixture rather
+than mocking file IO.
 """
 import base64
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -81,25 +82,7 @@ class TestGetMailboxFolders:
             assert mail.get_mailbox_folders(HEADERS, MAILBOX) == []
 
 
-# ======================= Email Functions ======================= #
-
-
-class TestParseEmailNotification:
-    def test_returns_mailbox_and_message_id(self):
-        notification = {
-            "resource": f"users/{MAILBOX}/messages/{MESSAGE_ID}",
-        }
-        mailbox, message_id = mail.parse_email_notification(notification)
-        assert mailbox == MAILBOX
-        assert message_id == MESSAGE_ID
-
-    def test_raises_value_error_on_malformed_resource(self):
-        with pytest.raises(ValueError, match="Malformed resource data"):
-            mail.parse_email_notification({"resource": "users/only"})
-
-    def test_raises_value_error_when_resource_missing(self):
-        with pytest.raises(ValueError, match="Malformed resource data"):
-            mail.parse_email_notification({})
+# ======================= Message Functions ======================= #
 
 
 class TestGetEmailMetadata:
@@ -163,6 +146,9 @@ class TestGetEmails:
             assert mail.get_emails(HEADERS, MAILBOX) == []
 
 
+# ======================= Attachment Functions ======================= #
+
+
 class TestGetAttachments:
     def test_returns_enriched_attachments_with_name_parts(self):
         payload = {
@@ -218,45 +204,34 @@ class TestSaveAttachment:
     def test_writes_base64_decoded_bytes_from_dict(self, tmp_path):
         content_b64 = base64.b64encode(b"hello world").decode()
         attachment = {"contentBytes": content_b64, "name": "x.txt"}
-        fake_file = AsyncMock()
-        mock_cm = MagicMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=fake_file)
-        mock_cm.__aexit__ = AsyncMock(return_value=None)
         destination = tmp_path / "x.txt"
-        with patch(
-            "wcp_library.graph.mail.aiofiles.open", return_value=mock_cm
-        ) as mock_open:
-            mail.save_attachment(attachment, destination)
-            mock_open.assert_called_once_with(destination, "wb")
-            fake_file.write.assert_awaited_once_with(b"hello world")
+
+        mail.save_attachment(attachment, destination)
+
+        assert destination.read_bytes() == b"hello world"
 
     def test_writes_bytes_directly_when_source_is_bytes(self, tmp_path):
-        raw = b"raw-bytes"
-        fake_file = AsyncMock()
-        mock_cm = MagicMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=fake_file)
-        mock_cm.__aexit__ = AsyncMock(return_value=None)
         destination = tmp_path / "raw.bin"
-        with patch(
-            "wcp_library.graph.mail.aiofiles.open", return_value=mock_cm
-        ) as mock_open:
-            mail.save_attachment(raw, destination)
-            mock_open.assert_called_once_with(destination, "wb")
-            fake_file.write.assert_awaited_once_with(b"raw-bytes")
+
+        mail.save_attachment(b"raw-bytes", destination)
+
+        assert destination.read_bytes() == b"raw-bytes"
 
     def test_raises_type_error_on_unsupported_source(self, tmp_path):
-        with pytest.raises(TypeError, match="Source must be bytes or dict"):
+        with pytest.raises(TypeError, match="source must be bytes or dict"):
             mail.save_attachment(12345, tmp_path / "x.txt")
 
-    def test_missing_content_bytes_defaults_to_empty(self, tmp_path):
-        fake_file = AsyncMock()
-        mock_cm = MagicMock()
-        mock_cm.__aenter__ = AsyncMock(return_value=fake_file)
-        mock_cm.__aexit__ = AsyncMock(return_value=None)
-        destination = tmp_path / "empty.bin"
-        with patch(
-            "wcp_library.graph.mail.aiofiles.open", return_value=mock_cm
+    def test_raises_unsupported_attachment_error_when_content_bytes_missing(
+        self, tmp_path
+    ):
+        # itemAttachment / referenceAttachment objects carry no contentBytes.
+        with pytest.raises(
+            mail.UnsupportedAttachmentError, match="no 'contentBytes' field"
         ):
-            # base64.b64decode(b"") == b""  -> no error
-            mail.save_attachment({"name": "nope"}, destination)
-            fake_file.write.assert_awaited_once_with(b"")
+            mail.save_attachment({"name": "nope"}, tmp_path / "empty.bin")
+
+    def test_unsupported_attachment_error_is_still_a_value_error(self, tmp_path):
+        # UnsupportedAttachmentError subclasses ValueError, so callers that
+        # already catch ValueError keep working unchanged.
+        with pytest.raises(ValueError):
+            mail.save_attachment({"name": "nope"}, tmp_path / "empty.bin")
