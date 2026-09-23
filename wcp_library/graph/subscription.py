@@ -312,25 +312,42 @@ def get_resource_type(resource: str) -> str:
     :return: One of the keys used by ``_calculate_expiration_datetime``'s
         lifetime table, or "default" if none match.
     """
-    resource_mappings = {
-        "messages": "mail",
-        "events": "calendar",
-        "contacts": "contacts",
-        "drive": "drive",
-        "sites": "sharepoint",
-        "groups": "directory",
-        "users": "directory",
-        "teams": "teams",
-        "chats": "teams",
-        "presence": "presence",
-        "print": "print",
-        "todo": "todo",
-        "security": "security",
-        "copilot": "copilot",
-    }
+    # Order matters: this is a priority list, most specific first. Several
+    # resource shapes are nested under a generic scope segment that is
+    # ALSO a key in this table, and the specific collection must win:
+    #   - "users/{id}/todo/lists/{id}/tasks" has both "users" and "todo"
+    #   - "copilot/users/{id}/..."            has both "users" and "copilot"
+    #   - "teams/{id}/channels/{id}/messages" has both "messages" and "teams"
+    #   - "chats/{id}/messages/{id}"          has both "messages" and "chats"
+    #   - "sites/{id}/drive/root"             has both "drive" and "sites"
+    # "users" and "groups" are checked last: they are correct only when
+    # nothing more specific is nested under them.
+    resource_mappings = [
+        ("teams", "teams"),
+        ("chats", "teams"),
+        ("copilot", "copilot"),
+        ("todo", "todo"),
+        ("messages", "mail"),
+        ("events", "calendar"),
+        ("contacts", "contacts"),
+        ("sites", "sharepoint"),
+        ("drive", "drive"),
+        ("drives", "drive"),
+        ("presences", "presence"),
+        ("communications", "presence"),
+        ("printers", "print"),
+        ("printtaskdefinitions", "print"),
+        ("printtaskdefinition", "print"),
+        ("print", "print"),
+        ("security", "security"),
+        ("groups", "directory"),
+        ("users", "directory"),
+    ]
 
-    for key, value in resource_mappings.items():
-        if key in resource.lower():
+    segments = {seg.split("(")[0].lower() for seg in resource.split("/") if seg}
+
+    for key, value in resource_mappings:
+        if key in segments:
             return value
     return "default"
 
