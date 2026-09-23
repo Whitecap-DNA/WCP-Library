@@ -168,7 +168,7 @@ class TestListSubscriptions:
     def test_returns_subscription_values(self):
         payload = {"value": [{"id": "s1"}, {"id": "s2"}]}
         with patch(
-            "wcp_library.graph.subscription._request",
+            "wcp_library.graph._request",
             return_value=_ok_json(payload),
         ) as mock_request:
             result = subscription.list_subscriptions(HEADERS)
@@ -178,14 +178,14 @@ class TestListSubscriptions:
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
-            "wcp_library.graph.subscription._request",
+            "wcp_library.graph._request",
             return_value=_ok_json({}),
         ):
             assert subscription.list_subscriptions(HEADERS) == []
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.subscription._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 subscription.list_subscriptions(HEADERS)

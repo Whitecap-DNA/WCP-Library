@@ -44,7 +44,7 @@ class TestGetMailboxFolders:
     def test_lists_root_mail_folders(self):
         payload = {"value": [{"id": "f1", "displayName": "Inbox"}]}
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ) as mock_request:
             result = mail.get_mailbox_folders(HEADERS, MAILBOX)
             assert result == [{"id": "f1", "displayName": "Inbox"}]
@@ -59,7 +59,7 @@ class TestGetMailboxFolders:
     def test_lists_child_folders_when_parent_provided(self):
         payload = {"value": [{"id": "child", "displayName": "Subfolder"}]}
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ) as mock_request:
             mail.get_mailbox_folders(HEADERS, MAILBOX, parent_folder_id="parent-1")
             called_url = mock_request.call_args[0][1]
@@ -70,14 +70,14 @@ class TestGetMailboxFolders:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 mail.get_mailbox_folders(HEADERS, MAILBOX)
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json({})
+            "wcp_library.graph._request", return_value=_ok_json({})
         ):
             assert mail.get_mailbox_folders(HEADERS, MAILBOX) == []
 
@@ -111,7 +111,7 @@ class TestGetEmails:
     def test_lists_emails_from_root_when_no_folder_id(self):
         payload = {"value": [{"id": MESSAGE_ID, "subject": "Hi"}]}
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ) as mock_request:
             result = mail.get_emails(HEADERS, MAILBOX)
             assert result == [{"id": MESSAGE_ID, "subject": "Hi"}]
@@ -123,7 +123,7 @@ class TestGetEmails:
     def test_lists_emails_from_folder_when_id_provided(self):
         payload = {"value": []}
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ) as mock_request:
             mail.get_emails(HEADERS, MAILBOX, folder_id=FOLDER_ID)
             called_url = mock_request.call_args[0][1]
@@ -134,14 +134,14 @@ class TestGetEmails:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 mail.get_emails(HEADERS, MAILBOX)
 
     def test_returns_empty_list_when_value_missing(self):
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json({})
+            "wcp_library.graph._request", return_value=_ok_json({})
         ):
             assert mail.get_emails(HEADERS, MAILBOX) == []
 
@@ -158,7 +158,7 @@ class TestGetAttachments:
             ]
         }
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ) as mock_request:
             result = mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
             called_url = mock_request.call_args[0][1]
@@ -186,7 +186,7 @@ class TestGetAttachments:
     def test_handles_attachment_without_name(self):
         payload = {"value": [{"id": "att-no-name"}]}
         with patch(
-            "wcp_library.graph.mail._request", return_value=_ok_json(payload)
+            "wcp_library.graph._request", return_value=_ok_json(payload)
         ):
             result = mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
             assert result[0]["name_no_extension"] == ""
@@ -194,7 +194,7 @@ class TestGetAttachments:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.mail._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 mail.get_attachments(HEADERS, MAILBOX, MESSAGE_ID)
@@ -221,17 +221,7 @@ class TestSaveAttachment:
         with pytest.raises(TypeError, match="source must be bytes or dict"):
             mail.save_attachment(12345, tmp_path / "x.txt")
 
-    def test_raises_unsupported_attachment_error_when_content_bytes_missing(
-        self, tmp_path
-    ):
+    def test_raises_value_error_when_content_bytes_missing(self, tmp_path):
         # itemAttachment / referenceAttachment objects carry no contentBytes.
-        with pytest.raises(
-            mail.UnsupportedAttachmentError, match="no 'contentBytes' field"
-        ):
-            mail.save_attachment({"name": "nope"}, tmp_path / "empty.bin")
-
-    def test_unsupported_attachment_error_is_still_a_value_error(self, tmp_path):
-        # UnsupportedAttachmentError subclasses ValueError, so callers that
-        # already catch ValueError keep working unchanged.
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="no 'contentBytes' field"):
             mail.save_attachment({"name": "nope"}, tmp_path / "empty.bin")

@@ -17,12 +17,18 @@ from wcp_library.graph import sharepoint
 # --------------------------- Helpers --------------------------- #
 
 
-def _ok_json(payload, status_code=200):
-    """Build a MagicMock response object that returns ``payload`` from .json()."""
+def _ok_json(payload, status_code=200, content=b"{}"):
+    """Build a MagicMock response object that returns ``payload`` from .json().
+
+    ``content`` defaults to a non-empty placeholder: some functions
+    (``copy_file``) branch on whether the raw response body is empty to
+    detect a 202-Accepted, still-processing response, and an always-empty
+    ``.content`` here would silently defeat that check.
+    """
     mock = MagicMock()
     mock.json.return_value = payload
     mock.status_code = status_code
-    mock.content = b""
+    mock.content = content
     return mock
 
 
@@ -99,7 +105,7 @@ class TestGetDrives:
     def test_returns_all_drives(self):
         page = _ok_json({"value": [{"id": "d1", "name": "Documents"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             result = sharepoint.get_drives(HEADERS, SITE_ID)
             assert result == [{"id": "d1", "name": "Documents"}]
@@ -111,14 +117,14 @@ class TestGetDrives:
     def test_passes_page_size_as_top_param(self):
         page = _ok_json({"value": []})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             sharepoint.get_drives(HEADERS, SITE_ID, page_size=100)
             assert "$top=100" in _called_url(mock_req)
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.get_drives(HEADERS, SITE_ID)
@@ -133,7 +139,7 @@ class TestGetDriveIdByName:
             ]
         }
         with patch(
-            "wcp_library.graph.sharepoint._request",
+            "wcp_library.graph._request",
             return_value=_ok_json(drives_payload),
         ):
             assert sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Reports") == "d2"
@@ -141,14 +147,14 @@ class TestGetDriveIdByName:
     def test_returns_none_when_name_not_found(self):
         drives_payload = {"value": [{"id": "d1", "name": "Documents"}]}
         with patch(
-            "wcp_library.graph.sharepoint._request",
+            "wcp_library.graph._request",
             return_value=_ok_json(drives_payload),
         ):
             assert sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Missing") is None
 
     def test_raises_when_drives_fetch_fails(self):
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Anything")
@@ -158,6 +164,14 @@ class TestGetDriveIdByName:
 
 
 class TestGetDelta:
+    """Tests _get_delta directly, unlike this suite's usual convention of
+    only exercising private helpers (_drive_base, _resolve_item_url, etc.)
+    through their public callers. _get_delta carries enough of its own
+    logic - pagination, delta-link capture, the site_id/drive_id/delta_link
+    contract - to warrant direct coverage; TestGetChangedItems below covers
+    the thin public wrapper without duplicating that logic.
+    """
+
     def test_first_call_without_delta_link_hits_root_delta(self):
         payload = {
             "value": [{"id": "a", "file": {}}],
@@ -166,7 +180,7 @@ class TestGetDelta:
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
         ) as mock_req:
-            items, delta_link = sharepoint.get_delta(HEADERS, SITE_ID)
+            items, delta_link = sharepoint._get_delta(HEADERS, SITE_ID)
             assert items == [{"id": "a", "file": {}}]
             assert delta_link == "https://graph.microsoft.com/final-link"
             assert _called_url(mock_req) == (
@@ -178,7 +192,7 @@ class TestGetDelta:
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
         ) as mock_req:
-            sharepoint.get_delta(HEADERS, drive_id=DRIVE_ID)
+            sharepoint._get_delta(HEADERS, drive_id=DRIVE_ID)
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/root/delta"
             )
@@ -194,7 +208,7 @@ class TestGetDelta:
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
         ) as mock_req:
-            sharepoint.get_delta(HEADERS, delta_link=stored_link)
+            sharepoint._get_delta(HEADERS, delta_link=stored_link)
             assert _called_url(mock_req) == stored_link
 
     def test_page_size_appends_top_param_on_first_request(self):
@@ -202,7 +216,7 @@ class TestGetDelta:
         with patch(
             "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
         ) as mock_req:
-            sharepoint.get_delta(HEADERS, SITE_ID, page_size=50)
+            sharepoint._get_delta(HEADERS, SITE_ID, page_size=50)
             assert "$top=50" in _called_url(mock_req)
 
     def test_follows_next_link_and_captures_delta_link_on_final_page(self):
@@ -221,27 +235,27 @@ class TestGetDelta:
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=[page1, page2]
         ) as mock_req:
-            items, delta_link = sharepoint.get_delta(HEADERS, SITE_ID)
+            items, delta_link = sharepoint._get_delta(HEADERS, SITE_ID)
             assert items == [{"id": "a"}, {"id": "b"}]
             assert delta_link == "https://graph.microsoft.com/final"
             assert mock_req.call_count == 2
 
     def test_raises_value_error_without_site_id_drive_id_or_delta_link(self):
         with pytest.raises(ValueError):
-            sharepoint.get_delta(HEADERS)
+            sharepoint._get_delta(HEADERS)
 
     def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
-                sharepoint.get_delta(HEADERS, SITE_ID)
+                sharepoint._get_delta(HEADERS, SITE_ID)
 
 
 class TestGetChangedItems:
     def test_filters_out_folders_and_deleted_items(self):
         with patch(
-            "wcp_library.graph.sharepoint.get_delta",
+            "wcp_library.graph.sharepoint._get_delta",
             return_value=(
                 [
                     {"id": "f1", "file": {}},
@@ -260,7 +274,7 @@ class TestGetChangedItems:
 
     def test_forwards_drive_id_delta_link_and_page_size(self):
         with patch(
-            "wcp_library.graph.sharepoint.get_delta", return_value=([], "next")
+            "wcp_library.graph.sharepoint._get_delta", return_value=([], "next")
         ) as mock_get_delta:
             sharepoint.get_changed_items(
                 HEADERS, SITE_ID, drive_id=DRIVE_ID, delta_link="prev", page_size=25
@@ -271,7 +285,7 @@ class TestGetChangedItems:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.sharepoint.get_delta", side_effect=_http_error()
+            "wcp_library.graph.sharepoint._get_delta", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.get_changed_items(HEADERS, SITE_ID)
@@ -284,7 +298,7 @@ class TestListFolder:
     def test_returns_items_for_root_when_path_is_slash(self):
         page = _ok_json({"value": [{"id": "f1", "name": "file.txt"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             result = sharepoint.list_folder(HEADERS, SITE_ID, "/")
             assert result == [{"id": "f1", "name": "file.txt"}]
@@ -295,7 +309,7 @@ class TestListFolder:
     def test_returns_items_for_named_folder(self):
         page = _ok_json({"value": [{"id": "f1"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             sharepoint.list_folder(HEADERS, SITE_ID, "/Shared Documents/Reports")
             assert _called_url(mock_req) == (
@@ -306,7 +320,7 @@ class TestListFolder:
     def test_uses_drive_id_when_provided(self):
         page = _ok_json({"value": []})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             sharepoint.list_folder(HEADERS, SITE_ID, "/folder", drive_id=DRIVE_ID)
             called_url = _called_url(mock_req)
@@ -322,7 +336,7 @@ class TestListFolder:
         )
         page2 = _ok_json({"value": [{"id": "b"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request",
+            "wcp_library.graph._request",
             side_effect=[page1, page2],
         ) as mock_req:
             result = sharepoint.list_folder(HEADERS, SITE_ID, "/folder")
@@ -332,7 +346,7 @@ class TestListFolder:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.list_folder(HEADERS, SITE_ID, "/folder")
@@ -466,7 +480,7 @@ class TestUploadFile:
             assert _called_method(mock_req) == "PUT"
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:"
-                "/Shared Documents/report.xlsx:/content"
+                "/Shared Documents:/report.xlsx:/content"
                 "?@microsoft.graph.conflictBehavior=rename"
             )
             assert mock_req.call_args.kwargs["data"] == b"file-bytes"
@@ -708,9 +722,9 @@ class TestRenameFile:
                 HEADERS,
                 SITE_ID,
                 "/Docs/old.txt",
-                destination_path="/Docs/old.txt",
                 new_filename="new.txt",
                 drive_id=None,
+                item_id=None,
             )
 
     def test_propagates_exception_when_move_fails(self):
@@ -760,6 +774,19 @@ class TestCopyFile:
             with pytest.raises(requests.RequestException):
                 sharepoint.copy_file(HEADERS, SITE_ID, "/a.txt", "/b")
 
+    def test_returns_none_when_graph_accepts_and_defers(self):
+        # 202 Accepted: Graph is still running the copy; no JSON body.
+        with patch(
+            "wcp_library.graph.sharepoint._request",
+            return_value=_ok_json({}, status_code=202, content=b""),
+        ):
+            result = sharepoint.copy_file(HEADERS, SITE_ID, "/a.txt", "/b")
+            assert result is None
+
+    def test_raises_value_error_without_destination(self):
+        with pytest.raises(ValueError):
+            sharepoint.copy_file(HEADERS, SITE_ID, "/a.txt")
+
 
 class TestRemoveFile:
     def test_calls_delete_on_success(self):
@@ -788,7 +815,7 @@ class TestGetLists:
     def test_returns_all_lists(self):
         page = _ok_json({"value": [{"id": "l1"}, {"id": "l2"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             result = sharepoint.get_lists(HEADERS, SITE_ID)
             assert result == [{"id": "l1"}, {"id": "l2"}]
@@ -805,7 +832,7 @@ class TestGetLists:
         )
         page2 = _ok_json({"value": [{"id": "b"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=[page1, page2]
+            "wcp_library.graph._request", side_effect=[page1, page2]
         ) as mock_req:
             result = sharepoint.get_lists(HEADERS, SITE_ID)
             assert result == [{"id": "a"}, {"id": "b"}]
@@ -813,7 +840,7 @@ class TestGetLists:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.get_lists(HEADERS, SITE_ID)
@@ -898,7 +925,7 @@ class TestGetListItems:
     def test_returns_items_without_filter(self):
         page = _ok_json({"value": [{"id": "i1"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             result = sharepoint.get_list_items(HEADERS, SITE_ID, LIST_ID)
             assert result == [{"id": "i1"}]
@@ -909,7 +936,7 @@ class TestGetListItems:
     def test_appends_filter_to_url(self):
         page = _ok_json({"value": []})
         with patch(
-            "wcp_library.graph.sharepoint._request", return_value=page
+            "wcp_library.graph._request", return_value=page
         ) as mock_req:
             sharepoint.get_list_items(
                 HEADERS, SITE_ID, LIST_ID, odata_filter="fields/Status eq 'Open'"
@@ -925,7 +952,7 @@ class TestGetListItems:
         )
         page2 = _ok_json({"value": [{"id": "b"}]})
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=[page1, page2]
+            "wcp_library.graph._request", side_effect=[page1, page2]
         ) as mock_req:
             result = sharepoint.get_list_items(HEADERS, SITE_ID, LIST_ID)
             assert result == [{"id": "a"}, {"id": "b"}]
@@ -933,7 +960,7 @@ class TestGetListItems:
 
     def test_raises_on_request_exception(self):
         with patch(
-            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+            "wcp_library.graph._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
                 sharepoint.get_list_items(HEADERS, SITE_ID, LIST_ID)
