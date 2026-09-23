@@ -154,6 +154,129 @@ class TestGetDriveIdByName:
                 sharepoint.get_drive_id_by_name(HEADERS, SITE_ID, "Anything")
 
 
+# ======================= Delta functions ======================= #
+
+
+class TestGetDelta:
+    def test_first_call_without_delta_link_hits_root_delta(self):
+        payload = {
+            "value": [{"id": "a", "file": {}}],
+            "@odata.deltaLink": "https://graph.microsoft.com/final-link",
+        }
+        with patch(
+            "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
+        ) as mock_req:
+            items, delta_link = sharepoint.get_delta(HEADERS, SITE_ID)
+            assert items == [{"id": "a", "file": {}}]
+            assert delta_link == "https://graph.microsoft.com/final-link"
+            assert _called_url(mock_req) == (
+                f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root/delta"
+            )
+
+    def test_uses_drive_id_when_provided(self):
+        payload = {"value": [], "@odata.deltaLink": "https://graph.microsoft.com/final"}
+        with patch(
+            "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
+        ) as mock_req:
+            sharepoint.get_delta(HEADERS, drive_id=DRIVE_ID)
+            assert _called_url(mock_req) == (
+                f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/root/delta"
+            )
+
+    def test_uses_delta_link_directly_when_provided(self):
+        stored_link = (
+            "https://graph.microsoft.com/v1.0/sites/x/drive/root/delta?token=prev"
+        )
+        payload = {
+            "value": [],
+            "@odata.deltaLink": "https://graph.microsoft.com/next-token",
+        }
+        with patch(
+            "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
+        ) as mock_req:
+            sharepoint.get_delta(HEADERS, delta_link=stored_link)
+            assert _called_url(mock_req) == stored_link
+
+    def test_page_size_appends_top_param_on_first_request(self):
+        payload = {"value": [], "@odata.deltaLink": "https://graph.microsoft.com/final"}
+        with patch(
+            "wcp_library.graph.sharepoint._request", return_value=_ok_json(payload)
+        ) as mock_req:
+            sharepoint.get_delta(HEADERS, SITE_ID, page_size=50)
+            assert "$top=50" in _called_url(mock_req)
+
+    def test_follows_next_link_and_captures_delta_link_on_final_page(self):
+        page1 = _ok_json(
+            {
+                "value": [{"id": "a"}],
+                "@odata.nextLink": "https://graph.microsoft.com/page2",
+            }
+        )
+        page2 = _ok_json(
+            {
+                "value": [{"id": "b"}],
+                "@odata.deltaLink": "https://graph.microsoft.com/final",
+            }
+        )
+        with patch(
+            "wcp_library.graph.sharepoint._request", side_effect=[page1, page2]
+        ) as mock_req:
+            items, delta_link = sharepoint.get_delta(HEADERS, SITE_ID)
+            assert items == [{"id": "a"}, {"id": "b"}]
+            assert delta_link == "https://graph.microsoft.com/final"
+            assert mock_req.call_count == 2
+
+    def test_raises_value_error_without_site_id_drive_id_or_delta_link(self):
+        with pytest.raises(ValueError):
+            sharepoint.get_delta(HEADERS)
+
+    def test_raises_on_request_exception(self):
+        with patch(
+            "wcp_library.graph.sharepoint._request", side_effect=_http_error()
+        ):
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_delta(HEADERS, SITE_ID)
+
+
+class TestGetChangedItems:
+    def test_filters_out_folders_and_deleted_items(self):
+        with patch(
+            "wcp_library.graph.sharepoint.get_delta",
+            return_value=(
+                [
+                    {"id": "f1", "file": {}},
+                    {"id": "folder1", "folder": {}},
+                    {"id": "f2", "file": {}, "deleted": {"state": "softDeleted"}},
+                ],
+                "https://graph.microsoft.com/final",
+            ),
+        ) as mock_get_delta:
+            files, delta_link = sharepoint.get_changed_items(HEADERS, SITE_ID)
+            assert files == [{"id": "f1", "file": {}}]
+            assert delta_link == "https://graph.microsoft.com/final"
+            mock_get_delta.assert_called_once_with(
+                HEADERS, SITE_ID, drive_id=None, delta_link=None, page_size=None
+            )
+
+    def test_forwards_drive_id_delta_link_and_page_size(self):
+        with patch(
+            "wcp_library.graph.sharepoint.get_delta", return_value=([], "next")
+        ) as mock_get_delta:
+            sharepoint.get_changed_items(
+                HEADERS, SITE_ID, drive_id=DRIVE_ID, delta_link="prev", page_size=25
+            )
+            mock_get_delta.assert_called_once_with(
+                HEADERS, SITE_ID, drive_id=DRIVE_ID, delta_link="prev", page_size=25
+            )
+
+    def test_raises_on_request_exception(self):
+        with patch(
+            "wcp_library.graph.sharepoint.get_delta", side_effect=_http_error()
+        ):
+            with pytest.raises(requests.RequestException):
+                sharepoint.get_changed_items(HEADERS, SITE_ID)
+
+
 # ======================= File (DriveItem) functions ======================= #
 
 
@@ -215,40 +338,59 @@ class TestListFolder:
                 sharepoint.list_folder(HEADERS, SITE_ID, "/folder")
 
 
-class TestGetFileMetadata:
-    def test_returns_metadata_json(self):
-        payload = {"id": "file-1", "name": "report.xlsx"}
+class TestGetItemMetadata:
+    def test_returns_folder_metadata_unmodified(self):
+        # No "file" facet on a folder, so no name_no_extension/extension
+        # keys should be added.
+        payload = {"id": "folder-1", "name": "Reports", "folder": {"childCount": 3}}
         with patch(
             "wcp_library.graph.sharepoint._request",
             return_value=_ok_json(payload),
         ) as mock_req:
-            result = sharepoint.get_file_metadata(
-                HEADERS, SITE_ID, "/Shared Documents/report.xlsx"
+            result = sharepoint.get_item_metadata(
+                HEADERS, SITE_ID, "/Shared Documents/Reports"
             )
             assert result == payload
+            assert "name_no_extension" not in result
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:"
-                "/Shared Documents/report.xlsx"
+                "/Shared Documents/Reports"
             )
+
+    def test_adds_name_parts_when_item_is_a_file(self):
+        payload = {"id": "file-1", "name": "report.xlsx", "file": {}}
+        with patch(
+            "wcp_library.graph.sharepoint._request",
+            return_value=_ok_json(payload),
+        ):
+            result = sharepoint.get_item_metadata(
+                HEADERS, SITE_ID, "/Shared Documents/report.xlsx"
+            )
+            assert result["name_no_extension"] == "report"
+            assert result["extension"] == "xlsx"
 
     def test_uses_drive_id_when_provided(self):
         with patch(
             "wcp_library.graph.sharepoint._request",
             return_value=_ok_json({"id": "x"}),
         ) as mock_req:
-            sharepoint.get_file_metadata(
+            sharepoint.get_item_metadata(
                 HEADERS, SITE_ID, "/a.txt", drive_id=DRIVE_ID
             )
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/root:/a.txt"
             )
 
+    def test_raises_value_error_without_file_path_or_item_id(self):
+        with pytest.raises(ValueError):
+            sharepoint.get_item_metadata(HEADERS, SITE_ID, None)
+
     def test_raises_on_request_exception(self):
         with patch(
             "wcp_library.graph.sharepoint._request", side_effect=_http_error()
         ):
             with pytest.raises(requests.RequestException):
-                sharepoint.get_file_metadata(HEADERS, SITE_ID, "/x.txt")
+                sharepoint.get_item_metadata(HEADERS, SITE_ID, "/x.txt")
 
 
 class TestGetFileContent:
@@ -369,6 +511,98 @@ class TestUploadFile:
                 sharepoint.upload_file(
                     HEADERS, SITE_ID, "/Docs", "a.txt", b"x"
                 )
+
+
+class TestUploadMultipleFiles:
+    @staticmethod
+    def _fake_upload_file(
+        headers,
+        site_id,
+        file_path,
+        filename,
+        content,
+        conflict_behavior="rename",
+        *,
+        drive_id=None,
+        item_id=None,
+    ):
+        return {"filename": filename, "path": file_path}
+
+    def test_uploads_each_file_and_preserves_order(self):
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file",
+            side_effect=self._fake_upload_file,
+        ) as mock_upload:
+            files = [
+                ("/Docs", "a.txt", b"a"),
+                ("/Docs", "b.txt", b"b"),
+                ("/Docs", "c.txt", b"c"),
+            ]
+            results = sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+            assert results == [
+                {"filename": "a.txt", "path": "/Docs"},
+                {"filename": "b.txt", "path": "/Docs"},
+                {"filename": "c.txt", "path": "/Docs"},
+            ]
+            assert mock_upload.call_count == 3
+
+    def test_one_failed_upload_does_not_stop_the_batch(self):
+        def _fake_upload_file(
+            headers, site_id, file_path, filename, content, conflict_behavior="rename",
+            *, drive_id=None, item_id=None,
+        ):
+            if filename == "bad.txt":
+                raise _http_error()
+            return {"filename": filename}
+
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
+        ):
+            files = [
+                ("/Docs", "good1.txt", b"a"),
+                ("/Docs", "bad.txt", b"b"),
+                ("/Docs", "good2.txt", b"c"),
+            ]
+            results = sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+            assert results[0] == {"filename": "good1.txt"}
+            assert results[1]["filename"] == "bad.txt"
+            assert isinstance(results[1]["error"], requests.RequestException)
+            assert results[2] == {"filename": "good2.txt"}
+
+    def test_type_error_from_unsupported_content_is_captured_per_file(self):
+        def _fake_upload_file(
+            headers, site_id, file_path, filename, content, conflict_behavior="rename",
+            *, drive_id=None, item_id=None,
+        ):
+            if not isinstance(content, (bytes, bytearray, memoryview, str)):
+                raise TypeError("unsupported content type")
+            return {"filename": filename}
+
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
+        ):
+            files = [("/Docs", "ok.txt", b"a"), ("/Docs", "bad.txt", 12345)]
+            results = sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+            assert results[0] == {"filename": "ok.txt"}
+            assert results[1]["filename"] == "bad.txt"
+            assert isinstance(results[1]["error"], TypeError)
+
+    def test_uses_item_id_for_destination_when_given(self):
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file", return_value={"ok": True}
+        ) as mock_upload:
+            files = [(None, "a.txt", b"a")]
+            sharepoint.upload_multiple_files(HEADERS, SITE_ID, files, item_id=ITEM_ID)
+            mock_upload.assert_called_once_with(
+                HEADERS,
+                SITE_ID,
+                None,
+                "a.txt",
+                b"a",
+                "rename",
+                drive_id=None,
+                item_id=ITEM_ID,
+            )
 
 
 class TestDownloadFile:
