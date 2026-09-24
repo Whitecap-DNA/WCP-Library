@@ -532,13 +532,22 @@ def upload_file(
         retries are exhausted).
     """
     if item_id is not None:
-        folder = f"{_drive_base(site_id, drive_id)}/items/{item_id}"
+        # Graph's documented simple-upload form for creating a child of a
+        # folder addressed by its ID: /items/{parent-id}:/{filename}:/content
+        url = f"{_drive_base(site_id, drive_id)}/items/{item_id}:/{filename}:/content"
     elif file_path is not None:
-        folder = f"{_drive_base(site_id, drive_id)}/root:{file_path}"
+        # Path addressing takes the full path of the item being written, so the
+        # filename belongs inside the single ``root:...:`` segment. Closing the
+        # path at the folder and opening a second segment for the filename is
+        # not valid syntax and Graph answers 400. Built through
+        # :func:`_resolve_item_url` so one function owns that shape.
+        url = _resolve_item_url(
+            site_id, f"{file_path}/{filename}", drive_id, None, action="content"
+        )
     else:
         raise ValueError("Provide either file_path or item_id.")
 
-    url = f"{folder}:/{filename}:/content?@microsoft.graph.conflictBehavior={conflict_behavior}"
+    url = f"{url}?@microsoft.graph.conflictBehavior={conflict_behavior}"
     response = _request("PUT", url, headers, data=_ensure_bytes(content))
     json_response = response.json()
     parent_path = json_response.get("parentReference", {}).get("path", "")
