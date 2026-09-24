@@ -87,10 +87,26 @@ with Browser(Browser.Firefox, options, sharepoint_config=sp_config) as driver:
 ## SharePoint Configuration (Optional)
 
 To save execution screenshots to SharePoint in case of RPA error, add sharepoint_config to the Browser creation with the following keys:
+* `credentials` — a [`GraphCredentials`](https://github.com/Whitecap-DNA/WCP-Library/wiki/Helper-%E2%80%90-Microsoft-Graph-API#graphcredentials)
 * `site_id`
-* `app_id`
-* `app_secret`
-* `tenant_id`
+
+```python
+from wcp_library.graph import GraphCredentials
+
+sp_config = {
+    "credentials": GraphCredentials.from_vault(vault_internet_api_key, credential_id),
+    "site_id": site_id,
+}
+```
+
+Screenshots are written to `/Automation/.Execution Error Screenshots`, which is not configurable.
+
+**Changed in 1.15.3.** This previously took `app_id`, `app_secret`, and `tenant_id`
+and minted a token itself, once per screenshot. Passing a `GraphCredentials`
+instead keeps the client secret out of the config dict, reuses one token across
+screenshots rather than making a fresh token request each time, and lets
+`from_vault` pick up a rotated secret. Build one with `from_app_registration` if
+you hold the app id, secret, and tenant id directly.
 
 ## Extending with a Custom Browser
 

@@ -349,42 +349,39 @@ class TestGetResourceType:
 
     # --- Known bugs in the mapping table ---
     #
-    # get_resource_type checks each key with a plain, unanchored substring
-    # test ("key in resource.lower()") in dict insertion order. Several
-    # resource path shapes contain an *earlier* key's text as a substring,
-    # so they never reach their own, later key. These three tests document
-    # the current (wrong) output. Flip the expected value to the resource
-    # type named in each test's title once the mapping is fixed, and see
-    # get_resource_context in wcp_library.graph, which relies on this
-    # function to pick a notification parser and is misrouting these same
-    # resources today.
+    # Several resource shapes nest a specific collection under a generic
+    # scope segment that is ALSO a mapping key, so the specific one has to
+    # win. get_resource_type splits the path into segments and walks an
+    # ordered priority list, most specific first, which resolves each of
+    # these. They are kept as regression guards: reordering that list, or
+    # going back to an unanchored substring match, silently reintroduces
+    # the misclassification each one names.
 
-    def test_teams_channel_message_is_misclassified_as_mail(self):
-        # "messages" is checked before "teams", and a channel-message path
-        # ("teams/{id}/channels/{id}/messages/{id}") contains "/messages/".
+    def test_teams_channel_message_is_teams(self):
+        # "teams/{id}/channels/{id}/messages/{id}" has both "messages" and
+        # "teams"; "teams" is the more specific match.
         assert (
             subscription.get_resource_type("teams/t1/channels/c1/messages/m1")
-            == "mail"
+            == "teams"
         )
 
-    def test_chat_message_is_misclassified_as_mail(self):
-        # Same collision as above, for chat messages ("chats/{id}/messages/{id}").
-        assert subscription.get_resource_type("chats/c1/messages/m1") == "mail"
+    def test_chat_message_is_teams(self):
+        # Same collision for chat messages ("chats/{id}/messages/{id}"), and
+        # "chats" maps onto the shared "teams" lifetime.
+        assert subscription.get_resource_type("chats/c1/messages/m1") == "teams"
 
-    def test_todo_task_is_misclassified_as_directory(self):
-        # "users" is checked before "todo", and a To Do task path
-        # ("users/{id}/todo/lists/{id}/tasks/{id}") contains "users".
+    def test_todo_task_is_todo(self):
+        # "users/{id}/todo/lists/{id}/tasks/{id}" has both "users" and "todo".
         assert (
             subscription.get_resource_type("users/u1/todo/lists/l1/tasks/t1")
-            == "directory"
+            == "todo"
         )
 
-    def test_user_scoped_copilot_is_misclassified_as_directory(self):
-        # Same collision as above, for Copilot resources scoped to a user
-        # ("copilot/users/{id}/...").
+    def test_user_scoped_copilot_is_copilot(self):
+        # "copilot/users/{id}/..." has both "users" and "copilot".
         assert (
             subscription.get_resource_type("copilot/users/u1/interactionhistory")
-            == "directory"
+            == "copilot"
         )
 
 
@@ -392,17 +389,25 @@ class TestGetResourceType:
 
 
 class TestRecreateSubscription:
-    def test_recreates_using_existing_subscription_values(self):
-        existing = {
+    # Graph hands back the notificationUrl that was submitted, and
+    # create_subscription submits "<base>/api/graph" - so a realistic stored
+    # value carries that suffix. Using the bare base here hid a bug where the
+    # suffix was appended a second time.
+    STORED_URL = f"{NOTIFICATION_URL}/api/graph"
+
+    def _existing(self, **overrides):
+        return {
             "id": SUBSCRIPTION_ID,
-            "notificationUrl": NOTIFICATION_URL,
+            "notificationUrl": self.STORED_URL,
             "resource": RESOURCE,
             "changeType": "created",
             "clientState": CLIENT_STATE,
-        }
+        } | overrides
+
+    def test_recreates_using_existing_subscription_values(self):
         with patch(
             "wcp_library.graph.subscription.get_subscription",
-            return_value=existing,
+            return_value=self._existing(),
         ) as mock_get, patch(
             "wcp_library.graph.subscription.create_subscription"
         ) as mock_create:
@@ -410,12 +415,49 @@ class TestRecreateSubscription:
             mock_get.assert_called_once_with(HEADERS, SUBSCRIPTION_ID)
             mock_create.assert_called_once_with(
                 HEADERS,
+                # The base URL, not the stored one: create_subscription
+                # appends the notification path itself.
                 NOTIFICATION_URL,
-                "mail",  # _get_resource_type maps "messages" in the path to "mail"
+                "mail",  # get_resource_type maps "messages" in the path to "mail"
                 RESOURCE,
                 "created",
                 CLIENT_STATE,
             )
+
+    def test_recreated_url_matches_the_original_not_doubled(self):
+        # End to end through the real create_subscription, so the URL the
+        # payload actually carries is asserted rather than the argument
+        # forwarded to a mock.
+        sent = {}
+
+        def fake_send(method, url, headers, **kwargs):
+            sent.update(kwargs.get("json") or {})
+            resp = MagicMock()
+            resp.json.return_value = {"id": "new-sub"}
+            return resp
+
+        with patch(
+            "wcp_library.graph.subscription.get_subscription",
+            return_value=self._existing(),
+        ), patch("wcp_library.graph._send", side_effect=fake_send):
+            subscription.recreate_subscription(HEADERS, SUBSCRIPTION_ID)
+
+        assert sent["notificationUrl"] == self.STORED_URL
+        assert sent["lifecycleNotificationUrl"] == f"{NOTIFICATION_URL}/api/lifecycle"
+        assert "/api/graph/api/" not in sent["notificationUrl"]
+
+    @pytest.mark.parametrize(
+        "field", ["notificationUrl", "resource", "changeType", "clientState"]
+    )
+    def test_missing_required_field_raises_valueerror(self, field):
+        # These used to reach create_subscription as None, producing a
+        # malformed payload, or crash inside get_resource_type.
+        with patch(
+            "wcp_library.graph.subscription.get_subscription",
+            return_value=self._existing(**{field: None}),
+        ):
+            with pytest.raises(ValueError, match=field):
+                subscription.recreate_subscription(HEADERS, SUBSCRIPTION_ID)
 
 
 # ======================= update_notification_url ======================= #

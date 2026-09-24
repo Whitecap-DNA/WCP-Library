@@ -560,7 +560,7 @@ class TestUploadMultipleFiles:
             ]
             assert mock_upload.call_count == 3
 
-    def test_one_failed_upload_does_not_stop_the_batch(self):
+    def test_one_failed_upload_still_attempts_the_rest_then_raises(self):
         def _fake_upload_file(
             headers, site_id, file_path, filename, content, conflict_behavior="rename",
             *, drive_id=None, item_id=None,
@@ -571,19 +571,23 @@ class TestUploadMultipleFiles:
 
         with patch(
             "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
-        ):
+        ) as mock_upload:
             files = [
                 ("/Docs", "good1.txt", b"a"),
                 ("/Docs", "bad.txt", b"b"),
                 ("/Docs", "good2.txt", b"c"),
             ]
-            results = sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
-            assert results[0] == {"filename": "good1.txt"}
-            assert results[1]["filename"] == "bad.txt"
-            assert isinstance(results[1]["error"], requests.RequestException)
-            assert results[2] == {"filename": "good2.txt"}
+            with pytest.raises(ExceptionGroup) as exc_info:
+                sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
 
-    def test_type_error_from_unsupported_content_is_captured_per_file(self):
+        # The good files were still attempted; the batch is not cancelled.
+        assert mock_upload.call_count == 3
+        group = exc_info.value
+        assert len(group.exceptions) == 1
+        assert isinstance(group.exceptions[0], requests.RequestException)
+        assert "file: /Docs/bad.txt" in group.exceptions[0].__notes__
+
+    def test_type_error_from_unsupported_content_is_raised_in_the_group(self):
         def _fake_upload_file(
             headers, site_id, file_path, filename, content, conflict_behavior="rename",
             *, drive_id=None, item_id=None,
@@ -596,10 +600,57 @@ class TestUploadMultipleFiles:
             "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
         ):
             files = [("/Docs", "ok.txt", b"a"), ("/Docs", "bad.txt", 12345)]
-            results = sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
-            assert results[0] == {"filename": "ok.txt"}
-            assert results[1]["filename"] == "bad.txt"
-            assert isinstance(results[1]["error"], TypeError)
+            with pytest.raises(ExceptionGroup) as exc_info:
+                sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+
+        group = exc_info.value
+        assert len(group.exceptions) == 1
+        assert isinstance(group.exceptions[0], TypeError)
+        assert "file: /Docs/bad.txt" in group.exceptions[0].__notes__
+
+    def test_an_unexpected_exception_still_reaches_the_caller(self):
+        # An exception left uncaught in a worker thread never reaches the
+        # joiner: it prints a traceback and leaves that entry empty. Every
+        # exception type is collected so this cannot fail silently.
+        def _fake_upload_file(
+            headers, site_id, file_path, filename, content, conflict_behavior="rename",
+            *, drive_id=None, item_id=None,
+        ):
+            if filename == "bad.txt":
+                raise ValueError("not a transport error and not a TypeError")
+            return {"filename": filename}
+
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
+        ):
+            files = [("/Docs", "ok.txt", b"a"), ("/Docs", "bad.txt", b"b")]
+            with pytest.raises(ExceptionGroup) as exc_info:
+                sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+
+        group = exc_info.value
+        assert len(group.exceptions) == 1
+        assert isinstance(group.exceptions[0], ValueError)
+
+    def test_every_failure_is_collected_not_just_the_first(self):
+        def _fake_upload_file(
+            headers, site_id, file_path, filename, content, conflict_behavior="rename",
+            *, drive_id=None, item_id=None,
+        ):
+            raise _http_error()
+
+        with patch(
+            "wcp_library.graph.sharepoint.upload_file", side_effect=_fake_upload_file
+        ):
+            files = [("/Docs", f"f{i}.txt", b"x") for i in range(4)]
+            with pytest.raises(ExceptionGroup) as exc_info:
+                sharepoint.upload_multiple_files(HEADERS, SITE_ID, files)
+
+        group = exc_info.value
+        assert len(group.exceptions) == 4
+        assert "4 of 4 uploads failed" in str(group)
+        # Notes are ordered by the input list, not by thread completion.
+        notes = [e.__notes__[0] for e in group.exceptions]
+        assert notes == [f"file: /Docs/f{i}.txt" for i in range(4)]
 
     def test_uses_item_id_for_destination_when_given(self):
         with patch(

@@ -11,11 +11,11 @@ import cryptography.hazmat.primitives.kdf.pbkdf2
 logger = logging.getLogger(__name__)
 
 # Application Path
-if getattr(sys, "frozen", False):
-    APPLICATION_PATH = sys.executable
-    APPLICATION_PATH = Path(APPLICATION_PATH).parent
-else:
-    APPLICATION_PATH = Path().absolute()
+APPLICATION_PATH: Path = (
+    Path(sys.executable).parent
+    if getattr(sys, "frozen", False)
+    else Path().absolute()
+)
 
 
 def divide_chunks(list_obj: list, size: int) -> Generator:

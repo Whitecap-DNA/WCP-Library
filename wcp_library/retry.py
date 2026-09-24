@@ -19,6 +19,7 @@ Four public policies:
 
 import logging
 import random
+from typing import Any
 
 import oracledb
 import psycopg
@@ -114,7 +115,7 @@ def _make_sql_retry(
     connection_loss_codes: frozenset[str],
     transient_codes: frozenset[str],
     name: str,
-) -> dict:
+) -> dict[str, Any]:
     """Build tenacity kwargs for tiered SQL retry.
 
     * Connection-loss codes: fixed 300s wait (tolerate DB maintenance).
@@ -178,7 +179,7 @@ def _graph_wait(retry_state) -> float:
     return min(2 ** (retry_state.attempt_number - 1), 60) + random.uniform(0, 3)
 
 
-graph_retry_kwargs = dict(
+graph_retry_kwargs: dict[str, Any] = dict(
     retry=retry_if_exception_type(_GraphRetriable),
     wait=_graph_wait,
     stop=stop_after_attempt(5),
@@ -193,7 +194,7 @@ def make_generic_retry(
     delay: int = 2,
     backoff: int = 2,
     jitter: int = 3,
-) -> dict:
+) -> dict[str, Any]:
     """Build tenacity kwargs for arbitrary-exception retry with exp backoff + jitter.
 
     Policy-identical to the pre-1.12 ``wcp_library.retry`` decorator.

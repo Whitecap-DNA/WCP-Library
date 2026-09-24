@@ -41,7 +41,6 @@ API Reference:
     https://learn.microsoft.com/en-us/graph/api/resources/sharepoint
 
 Dependencies:
-    - requests: Synchronous HTTP client for Graph API calls
     - yarl: URL parsing for extracting host and path from SharePoint site URLs
     - wcp_library.graph: Shared constants (REQUEST_TIMEOUT) and auth utilities
 """
@@ -52,7 +51,6 @@ import os
 import threading
 from pathlib import Path
 
-import requests
 from yarl import URL
 
 from wcp_library.graph import (_GRAPH_ROOT, GraphCredentials, _iter_pages,
@@ -357,7 +355,8 @@ def get_item_metadata(
     If the item is a file, the returned metadata also has "name_no_extension"
     and "extension" keys, split from "name".
 
-    :param headers: The headers containing the Authorization token.
+    :param headers: The headers containing the Authorization token, or a
+        ``GraphCredentials`` to mint and re-mint them.
     :param site_id: The ID of the SharePoint site. Optional if ``drive_id``
         is given directly.
     :param file_path: The path of the file. Required for path-based mode
@@ -561,16 +560,29 @@ def upload_multiple_files(
     Each file is uploaded with :func:`upload_file`, one thread per
     in-flight upload.
 
-    A failed upload does not stop the rest of the batch. Each
+    Every file is attempted: all uploads are in flight before any
+    result is known, so one failure cannot cancel the others. If any
+    file fails, the successful responses are discarded and an
+    ``ExceptionGroup`` of the failures is raised, each exception
+    carrying a note naming its file. Re-running the whole batch is the
+    intended recovery, and is safe with
+    ``conflict_behavior="replace"``.
+
+    Every exception is collected this way, not only the expected
     ``requests.RequestException`` (including one that survives all of
-    ``_request``'s retries) and each ``TypeError`` (an unsupported
-    ``content`` type for that one file) is caught per file and reported
-    in the returned list instead of being raised. Any other exception
-    (a bug, not an expected per-file failure) still propagates to the
-    caller - but since it would do so from inside a worker thread, it
-    only prints a traceback and leaves that file's result entry empty;
-    it does not stop the other threads or reach the caller as a raised
-    exception.
+    ``_request``'s retries) and ``TypeError`` (an unsupported
+    ``content`` type for one file). An exception left uncaught inside a
+    worker thread never reaches the caller at all: it prints a
+    traceback and leaves that file's entry empty, which is exactly the
+    silent failure this contract exists to prevent.
+
+    .. versionchanged:: 1.15.3
+        Failures are raised as an ``ExceptionGroup`` again, and every
+        exception type is collected rather than only
+        ``RequestException`` and ``TypeError``. 1.15.1 and 1.15.2
+        returned failures as ``{"filename": ..., "error": ...}``
+        entries in the result list; 1.15.0 raised. See
+        ``docs/adr/0003-upload-multiple-files-raises.md``.
 
     Two addressing modes are supported for the destination folder, both
     scoped to the given site unless ``drive_id`` is given directly, and
@@ -598,13 +610,13 @@ def upload_multiple_files(
         site's default drive is used.
     :param item_id: The ID of the destination folder, shared by every file
         in the batch. If given, each tuple's ``file_path`` is ignored.
-    :return: A list of results, one per entry in ``files``, in the same order.
-        On success, the entry is the Graph API response JSON, as returned by
-        :func:`upload_file`. On failure (``RequestException`` or
-        ``TypeError``), the entry is
-        ``{"filename": <name>, "error": <the exception>}``.
+    :return: A list of the Graph API responses, one per entry in ``files``,
+        in the same order, as returned by :func:`upload_file`.
+    :raises ExceptionGroup: If any upload failed. The group holds one
+        exception per failed file, each carrying a note naming it.
     """
     responses: list[dict] = [{} for _ in files]
+    failures: list[tuple[int, Exception]] = []
 
     def _upload_one(index: int, file_path: str | None, filename: str, content) -> None:
         try:
@@ -618,8 +630,13 @@ def upload_multiple_files(
                 drive_id=drive_id,
                 item_id=item_id,
             )
-        except (requests.RequestException, TypeError) as e:
-            responses[index] = {"filename": filename, "error": e}
+        except Exception as e:
+            # Deliberately broad: anything not caught here dies with its
+            # worker thread and never reaches the caller. Nothing is
+            # swallowed, because every one is re-raised in the group below.
+            destination = file_path if file_path is not None else f"item {item_id}"
+            e.add_note(f"file: {destination}/{filename}")
+            failures.append((index, e))
 
     threads = [
         threading.Thread(target=_upload_one, args=(index, file_path, filename, content))
@@ -629,6 +646,13 @@ def upload_multiple_files(
         thread.start()
     for thread in threads:
         thread.join()
+
+    if failures:
+        failures.sort(key=lambda failure: failure[0])
+        raise ExceptionGroup(
+            f"{len(failures)} of {len(files)} uploads failed",
+            [error for _, error in failures],
+        )
 
     return responses
 

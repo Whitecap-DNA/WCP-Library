@@ -2,15 +2,19 @@
 
 This library provides a structured and extensible framework for interacting with the Microsoft Graph API. It includes standardized authentication, and dedicated modules for SharePoint operations, email/mailbox management, and subscription lifecycle management, making it ideal for robust automation and integration workflows.
 
-## Breaking changes in 1.15.0
+## Breaking changes in 1.15.x
 
-`upload_multiple_files` now **raises** an `ExceptionGroup` when any file in the
+`upload_multiple_files` **raises** an `ExceptionGroup` when any file in the
 batch fails, instead of returning `{"filename": ..., "error": ...}` entries in
 its result list. The old behaviour let a batch in which every upload failed look
 like a batch that had succeeded — including when the cause was an expired token
 — which is exactly the silent failure the 1.13+ error contract exists to
 prevent. If you called it and inspected the result entries for errors, wrap the
-call in `try/except ExceptionGroup` instead.
+call in `try/except*` instead.
+
+Mind the version: this landed in **1.15.0**, was reverted in **1.15.1**, and was
+restored in **1.15.3**. On 1.15.1 or 1.15.2 the function returns per-file error
+entries and a failure is easy to miss.
 
 Everything else in 1.15.0 is additive: `GraphCredentials` is new, and the
 `headers` parameter of every helper now also accepts a `GraphCredentials` in
@@ -402,13 +406,53 @@ Resolve a drive ID by its display name. The match is case-sensitive and exact. R
 drive_id = get_drive_id_by_name(headers, site_id, "01_Whitecap")
 ```
 
+## SharePoint — Delta Functions
+
+### get_changed_items
+
+`get_changed_items(headers: dict | GraphCredentials, site_id: str | None = None, *, drive_id: str | None = None, delta_link: str | None = None, page_size: int | None = None) -> tuple[list[dict], str | None]`
+
+Find the files that changed in a drive since the last call. This exists because a
+driveItem change notification carries **no item ID, name, or path** — Graph sends
+null resource data for that resource — so a notification tells you *that*
+something changed in a drive, not what.
+
+Returns `(files, delta_link)`:
+
+- **First call** — omit `delta_link`. Graph returns every item currently in the
+  drive as a baseline, not a change set. Store the returned link.
+- **Every later call** — pass the stored link back as `delta_link`. Graph then
+  returns only what changed since that link was issued. `site_id`, `drive_id`,
+  and `page_size` are ignored in this mode, because the link already encodes
+  them. Store the new link even when `files` is empty.
+
+`files` contains only items carrying a `file` facet, with folder items and
+deletions dropped. Raises `ValueError` if neither `site_id` nor `drive_id` nor
+`delta_link` is given.
+
+```python
+# First call: baseline, plus a link to use next time.
+files, delta_link = get_changed_items(credentials, site_id)
+save_delta_link(delta_link)
+
+# Later, on a notification or a schedule:
+files, delta_link = get_changed_items(credentials, delta_link=load_delta_link())
+for item in files:
+    print(item["name"], item["id"])
+save_delta_link(delta_link)
+```
+
+Added in 1.15.1.
+
 ## SharePoint — File Functions
 
-All file helpers accept an optional keyword-only `drive_id` argument. When omitted (the default), operations target the site's default document library. When provided, operations target the specified drive — useful for sites that host multiple libraries.
+All file helpers accept an optional keyword-only `drive_id` argument. When omitted (the default), operations target the site's default document library. When provided, operations target the specified drive — useful for sites that host multiple libraries. `site_id` is optional when `drive_id` is given directly.
+
+Most also take a keyword-only `item_id` — and `destination_id` on `move_file` and `copy_file` — to address an item or folder by its Graph ID instead of a path. Where both are supplied the ID wins and the path is ignored, so the path argument may be `None`. Added in 1.15.1.
 
 ### list_folder
 
-`list_folder(headers: dict, site_id: str, folder_path: str, *, drive_id: str | None = None, page_size: int | None = None) -> list`
+`list_folder(headers: dict | GraphCredentials, site_id: str | None, folder_path: str | None = None, *, drive_id: str | None = None, item_id: str | None = None, page_size: int | None = None) -> list[dict]`
 
 List the immediate children of a folder. Follows `@odata.nextLink` across all pages — results are not silently truncated at the first page. Pass `folder_path="/"` (or `""`) to list the root of the drive.
 
@@ -423,20 +467,26 @@ files = list_folder(headers, site_id, "/2026/04", drive_id=drive_id, page_size=5
 files = list_folder(headers, site_id, "/", drive_id=drive_id)
 ```
 
-### get_file_metadata
+### get_item_metadata
 
-`get_file_metadata(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> dict`
+`get_item_metadata(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, *, drive_id: str | None = None, item_id: str | None = None) -> dict`
 
-Retrieve the metadata of a file on a SharePoint site.
+Retrieve the metadata of an item on a SharePoint site, by path or by ID. When the
+item is a file, the returned metadata also carries `name_no_extension` and
+`extension`, split from `name`. Raises `ValueError` if neither `file_path` nor
+`item_id` is given.
 
 ```python
-get_file_metadata(headers, site_id, "/Shared Documents/My Folder/file.txt")
-get_file_metadata(headers, site_id, "/2026/04/20/invoice.pdf", drive_id=drive_id)
+get_item_metadata(headers, site_id, "/Shared Documents/My Folder/file.txt")
+get_item_metadata(headers, site_id, "/2026/04/20/invoice.pdf", drive_id=drive_id)
+get_item_metadata(headers, site_id, None, item_id=item_id)
 ```
+
+**Renamed in 1.15.1**, from `get_file_metadata`.
 
 ### get_file_content
 
-`get_file_content(headers: dict, site_id: str | None, file_path: str | None, *, drive_id: str | None = None, item_id: str | None = None) -> bytes | None`
+`get_file_content(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, *, drive_id: str | None = None, item_id: str | None = None) -> bytes`
 
 Retrieve the raw content of a file. Two addressing modes are supported:
 
@@ -460,7 +510,7 @@ get_file_content(headers, None, None, drive_id=drive_id, item_id=item_id)
 
 ### upload_file
 
-`upload_file(headers: dict, site_id: str, file_path: str, filename: str, content: bytes | bytearray | memoryview | str, conflict_behavior: str = "rename", *, drive_id: str | None = None) -> dict`
+`upload_file(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, filename: str, content: bytes | bytearray | memoryview | str, conflict_behavior: str = 'rename', *, drive_id: str | None = None, item_id: str | None = None) -> dict`
 
 Upload a file to a SharePoint site. Parent folders do not need to exist beforehand. The `conflict_behavior` parameter controls what happens when a file with the same name already exists:
 
@@ -475,7 +525,7 @@ upload_file(headers, site_id, "/2026/04/20", "invoice.pdf", file_bytes, drive_id
 
 ### upload_multiple_files
 
-`upload_multiple_files(headers: dict | GraphCredentials, site_id: str, files: list[tuple[str, str, bytes | bytearray | memoryview | str]], conflict_behavior: str = "rename", *, drive_id: str | None = None) -> list[dict]`
+`upload_multiple_files(headers: dict | GraphCredentials, site_id: str | None, files: list[tuple[str | None, str, bytes | bytearray | memoryview | str]], conflict_behavior: str = "rename", *, drive_id: str | None = None, item_id: str | None = None) -> list[dict]`
 
 Upload several files to the same SharePoint folder in parallel, one thread per
 file, each through `upload_file`. Takes `(file_path, filename, content)` tuples
@@ -488,7 +538,9 @@ file, each carrying a note naming its file, and the successful responses are
 discarded. Re-running the whole batch is the intended recovery and is safe with
 `conflict_behavior="replace"`.
 
-Changed in 1.15.0 — see [Breaking changes in 1.15.0](#breaking-changes-in-1150).
+Every exception is collected, not only `requests.RequestException` and `TypeError`: one left uncaught in a worker thread would never reach the caller at all.
+
+Changed in 1.15.0, reverted in 1.15.1, restored in 1.15.3 — see [Breaking changes in 1.15.x](#breaking-changes-in-115x).
 
 ```python
 try:
@@ -506,7 +558,7 @@ except* requests.RequestException as failures:
 
 ### download_file
 
-`download_file(headers: dict, site_id: str, file_path: str, download_folder: Path, *, drive_id: str | None = None) -> Path | None`
+`download_file(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, download_folder: Path, *, drive_id: str | None = None, item_id: str | None = None, filename: str | None = None) -> Path`
 
 Download a file from a SharePoint site into `download_folder`. Returns the `Path` of the downloaded file on success. Raises `requests.RequestException` on HTTP errors or exhausted retries.
 
@@ -517,7 +569,7 @@ download_file(headers, site_id, "/Shared Documents/My Folder/file.txt", Path("/t
 
 ### move_file
 
-`move_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict`
+`move_file(headers: dict | GraphCredentials, site_id: str | None, source_path: str | None, destination_path: str | None = None, new_filename: str | None = None, *, drive_id: str | None = None, item_id: str | None = None, destination_id: str | None = None) -> dict`
 
 Move a file to a different folder within a SharePoint site. Optionally rename it during the move.
 
@@ -527,7 +579,7 @@ move_file(headers, site_id, "/Shared Documents/Old/file.txt", "/Shared Documents
 
 ### rename_file
 
-`rename_file(headers: dict, site_id: str, file_path: str, new_filename: str, *, drive_id: str | None = None) -> dict`
+`rename_file(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, new_filename: str, *, drive_id: str | None = None, item_id: str | None = None) -> dict`
 
 Rename a file in place on a SharePoint site. Uses `move_file` internally with the same parent path.
 
@@ -537,7 +589,7 @@ rename_file(headers, site_id, "/Shared Documents/My Folder/old_name.txt", "new_n
 
 ### copy_file
 
-`copy_file(headers: dict, site_id: str, source_path: str, destination_path: str, new_filename: str | None = None, *, drive_id: str | None = None) -> dict`
+`copy_file(headers: dict | GraphCredentials, site_id: str | None, source_path: str | None, destination_path: str | None = None, new_filename: str | None = None, *, drive_id: str | None = None, item_id: str | None = None, destination_id: str | None = None) -> dict | None`
 
 Copy a file to a different folder within a SharePoint site. Optionally rename the copy.
 
@@ -547,7 +599,7 @@ copy_file(headers, site_id, "/Shared Documents/Source/file.txt", "/Shared Docume
 
 ### remove_file
 
-`remove_file(headers: dict, site_id: str, file_path: str, *, drive_id: str | None = None) -> None`
+`remove_file(headers: dict | GraphCredentials, site_id: str | None, file_path: str | None, *, drive_id: str | None = None, item_id: str | None = None) -> None`
 
 Remove a file from a SharePoint site. Returns nothing on success; raises `requests.RequestException` on HTTP errors or exhausted retries.
 
@@ -668,7 +720,7 @@ remove_list_item(headers, site_id, list_id, item_id)
 
 ### get_mailbox_folders
 
-`get_mailbox_folders(headers: dict, mailbox: str, parent_folder_id: str | None = None) -> list[dict]`
+`get_mailbox_folders(headers: dict | GraphCredentials, mailbox: str, parent_folder_id: str | None = None, page_size: int | None = None) -> list[dict]`
 
 List mailbox folders. Optionally specify a `parent_folder_id` to list child folders.
 
@@ -679,15 +731,20 @@ get_mailbox_folders(headers, "user@contoso.com", parent_folder_id="folder-id")
 
 ## Mail — Email Functions
 
-### parse_email_notification
+### parse_email_notification (removed)
 
-`parse_email_notification(notification: dict) -> Tuple[str, str]`
-
-Parse a Microsoft Graph change notification and extract the mailbox address and message ID from the `resource` field.
+Removed in 1.15.1. Use [`get_resource_context`](#get_resource_context) instead,
+which handles mail alongside every other subscribable resource type and returns
+a dict rather than a two-tuple.
 
 ```python
-mailbox, message_id = parse_email_notification(notification)
+# was: mailbox, message_id = parse_email_notification(notification)
+context = get_resource_context(notification)
+mailbox, message_id = context["user_id"], context["message_id"]
 ```
+
+This page keeps the heading so older links land on an explanation rather than a
+missing section.
 
 ### get_email_metadata
 
@@ -701,7 +758,7 @@ get_email_metadata(headers, "user@contoso.com", message_id)
 
 ### get_emails
 
-`get_emails(headers: dict, mailbox: str, folder_id: str | None = None) -> list[dict]`
+`get_emails(headers: dict | GraphCredentials, mailbox: str, folder_id: str | None = None, page_size: int | None = None) -> list[dict]`
 
 List emails from a mailbox. Optionally specify a `folder_id` to list emails from a specific folder.
 
@@ -712,7 +769,7 @@ get_emails(headers, "user@contoso.com", folder_id="inbox-folder-id")
 
 ### get_attachments
 
-`get_attachments(headers: dict, mailbox: str, message_id: str) -> list[dict]`
+`get_attachments(headers: dict | GraphCredentials, mailbox: str, message_id: str, page_size: int | None = None) -> list[dict]`
 
 Fetch attachments for a specific email message. Each attachment dictionary is enriched with `name_no_extension` and `extension` fields.
 
@@ -732,7 +789,76 @@ save_attachment(attachment_dict, Path("/tmp/report.xlsx"))
 save_attachment(raw_bytes, Path("/tmp/data.csv"))
 ```
 
+## Notification Parsing
+
+### get_resource_context
+
+`get_resource_context(notification: dict) -> dict`
+
+Turn one entry from a change or lifecycle notification payload (an item from its
+`value` list) into the identifiers needed to act on the resource behind it. It
+classifies the notification with
+[`get_resource_type`](#get_resource_type) and runs the parser for that type.
+
+Every result carries `resource_type` and `subscription_id`. The remaining fields
+depend on the type, and a field is **omitted rather than set to `None`** when it
+could not be determined:
+
+| `resource_type` | Example resource | Other fields |
+| --- | --- | --- |
+| `mail` | `users/u1/mailFolders/mf1/messages/m1` | `user_id`, `mail_folder_id`, `message_id` |
+| `calendar` | `users/u1/calendars/c1/events/e1` | `user_id`, `calendar_id`, `event_id` |
+| `contacts` | `users/u1/contactFolders/cf1/contacts/c1` | `user_id`, `contact_folder_id`, `contact_id` |
+| `sharepoint` | `sites/s1/drives/d1/root` | `site_id`, `drive_id`, `item_id` (always `None`), `note` |
+| `drive` | `users/u1/drive/root` | `user_id`, `item_id` (always `None`), `note` |
+| `teams` | `teams/t1/channels/c1/messages/m1/replies/r1` | `team_id`, `channel_id`, `message_id`, `reply_id` |
+| `teams` | `chats/c1/messages/m1` | `chat_id`, `message_id` |
+| `presence` | `communications/presences/u1` | `user_id` |
+| `print` | `print/printers/p1/jobs/j1` | `printer_id`, `job_id` |
+| `print` | `print/printTaskDefinitions/td1/tasks/t1` | `task_definition_id`, `task_id` |
+| `todo` | `users/u1/todo/lists/l1/tasks/t1` | `user_id`, `list_id`, `task_id` |
+| `security` | `security/alerts/a1` | `alert_id` |
+| `copilot` | `copilot/users/u1/interactionHistory` | `user_id`, `interaction_id` |
+| `directory` | `groups/g1` | `collection`, `object_id` |
+| `default` | anything unrecognised | `resource` |
+
+The two driveItem rows are the reason
+[`get_changed_items`](#get_changed_items) exists: `item_id` is always `None`
+there, and `note` says so. Run a delta query on the drive to find what changed.
+
+```python
+for notification in payload["value"]:
+    context = get_resource_context(notification)
+    if context["resource_type"] == "mail":
+        message = get_email_metadata(credentials, context["user_id"], context["message_id"])
+```
+
+Added in 1.15.1.
+
 ## Subscription Functions
+
+### get_resource_type
+
+`get_resource_type(resource: str) -> str`
+
+Classify a Graph resource path, returning one of `mail`, `calendar`, `contacts`,
+`drive`, `sharepoint`, `directory`, `teams`, `presence`, `print`, `todo`,
+`security`, `copilot`, or `default` when nothing matches. The result picks both
+the subscription lifetime used by `create_subscription` and the parser used by
+[`get_resource_context`](#get_resource_context).
+
+Matching walks an ordered, most-specific-first list over the path's segments,
+because several resource shapes nest a specific collection under a generic scope
+segment that is also a key — `users/{id}/todo/...` is `todo`, not `directory`,
+and `teams/{id}/channels/{id}/messages/{id}` is `teams`, not `mail`.
+
+```python
+get_resource_type("users/u1/messages")                      # "mail"
+get_resource_type("teams/t1/channels/c1/messages/m1")       # "teams"
+get_resource_type("users/u1/todo/lists/l1/tasks/t1")        # "todo"
+```
+
+Public since 1.15.1; the four nesting cases above were fixed in 1.15.2.
 
 ### create_subscription
 

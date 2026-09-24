@@ -22,3 +22,15 @@ rather than correctness.
 
 A future maintainer may be tempted to restore the swallowing to avoid breaking a
 consumer. Don't: the silence is the defect, not the contract.
+
+## History
+
+Reversed in 1.15.1, which restored the per-file error entries, and restored in
+1.15.3. Both 1.15.1 and 1.15.2 are on PyPI with the swallowing behaviour, so a
+consumer pinned to either does not have the contract this ADR describes.
+
+The restoration also widened what is collected: every exception, not only
+`requests.RequestException` and `TypeError`. An exception left uncaught inside
+a worker thread never reaches the caller at all — it prints a traceback and
+leaves that file's result entry empty — so a narrow `except` reintroduces the
+silent failure through a different door.
