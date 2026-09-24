@@ -26,7 +26,7 @@ browser_options = {
 }
 
 config = {
-    "headers": {"Authorization": f"Bearer {token}"},
+    "credentials": GraphCredentials.from_vault(vault_api_key, credential_id),
     "site_id": "site-id",
 }
 
@@ -73,8 +73,8 @@ class BaseSelenium(UIInteractions, WEInteractions):
     :param browser_options: Custom WebDriver options (headless mode, arguments, download
         path, timeouts, etc.).
     :param sharepoint_config: Configuration for uploading error screenshots to
-        SharePoint. Expected keys: ``site_id``, ``app_id``, ``app_secret``,
-        ``tenant_id``
+        SharePoint. Required keys: ``credentials``, a
+        :class:`wcp_library.graph.GraphCredentials`, and ``site_id``.
     :ivar driver: The active WebDriver instance, set after entering the context manager.
     :ivar browser_options: Resolved browser options.
     :ivar sharepoint_config: SharePoint configuration passed to the ``Interactions``

@@ -53,7 +53,7 @@ class AsyncCredentialManager(ABC):
         logger.debug("Credentials retrieved")
         return password_dict
 
-    async def _get_credential(self, password_id: int) -> dict:
+    async def _get_credential(self, password_id: int | str) -> dict:
         """
         Get a specific credential from the password list
 
@@ -133,7 +133,7 @@ class AsyncCredentialManager(ABC):
         logger.debug(f"Credentials for {username} retrieved")
         return return_credential
 
-    async def get_credential_from_id(self, password_id: int) -> dict:
+    async def get_credential_from_id(self, password_id: int | str) -> dict:
         """
         Get the credentials for a specific Password ID
 

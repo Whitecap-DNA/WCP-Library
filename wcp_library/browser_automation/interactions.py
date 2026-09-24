@@ -18,6 +18,7 @@ WEInteractions
 import logging
 import time
 from datetime import datetime
+from typing import Any
 from io import StringIO
 from pathlib import Path
 
@@ -32,7 +33,6 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
-from wcp_library.graph import get_headers
 from wcp_library.graph.sharepoint import upload_file
 
 logger = logging.getLogger(__name__)
@@ -51,13 +51,16 @@ class Interactions:
 
     :param driver: An initialised Selenium WebDriver instance.
     :param sharepoint_config: Configuration for uploading error screenshots to
-        SharePoint. Expected keys: ``headers``, ``site_id``, ``file_path``.
+        SharePoint. Required keys: ``credentials``, a
+        :class:`wcp_library.graph.GraphCredentials`, and ``site_id``. The
+        destination folder is fixed at
+        ``/Automation/.Execution Error Screenshots``.
     """
 
     def __init__(
         self,
         driver,
-        sharepoint_config: dict[str, str] | None = None,
+        sharepoint_config: dict[str, Any] | None = None,
     ) -> None:
         self.driver = driver
         self.sharepoint_config = sharepoint_config
@@ -84,18 +87,16 @@ class Interactions:
 
         If ``sharepoint_config`` is set the image is uploaded to SharePoint;
         otherwise it is saved to the default local folder.
+
+        :raises KeyError: If ``sharepoint_config`` is set but is missing
+            ``credentials`` or ``site_id``.
         """
         filename = f"{datetime.now().strftime('%Y-%m-%d_%H-%M')}.png"
 
         if self.sharepoint_config:
             screenshot_bytes = self.driver.get_screenshot_as_png()
-            headers = get_headers(
-                self.sharepoint_config["app_id"],
-                self.sharepoint_config["app_secret"],
-                self.sharepoint_config["tenant_id"],
-            )
             upload_file(
-                headers=headers,
+                headers=self.sharepoint_config["credentials"],
                 site_id=self.sharepoint_config["site_id"],
                 file_path="/Automation/.Execution Error Screenshots",
                 filename=filename,

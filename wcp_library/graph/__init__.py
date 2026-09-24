@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
-REQUEST_TIMEOUT = 30  # seconds; override via set_request_timeout()
+REQUEST_TIMEOUT: int | float = 30  # seconds; override via set_request_timeout()
 RENEWAL_THRESHOLD = 60  # minutes
 
 # The one status that means "this token is no longer valid", as opposed to
@@ -186,7 +186,7 @@ def get_headers_from_vault(api_key: str, credential_id: int | str) -> dict:
     :param api_key: The Password State API key used to authenticate with
         InternetCredentialManager.
     :param credential_id: The Password State credential ID for the app
-        registration (int or str, will be coerced to int).
+        registration.
     :return: A dictionary containing the Authorization header with a Bearer token,
         e.g. {"Authorization": "Bearer <token>"}.
     """
@@ -491,7 +491,7 @@ def _request(
 
 def _iter_pages(
     url: str,
-    headers: dict,
+    headers: dict | GraphCredentials,
     page_size: int | None = None,
 ) -> list[dict]:
     """GET ``url`` and follow ``@odata.nextLink`` until exhausted.

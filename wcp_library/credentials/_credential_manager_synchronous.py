@@ -34,7 +34,8 @@ class CredentialManager(ABC):
         except requests.Timeout:
             raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
         except requests.HTTPError as e:
-            raise MissingCredentialsError(f"HTTP error retrieving credentials: {e.response.status_code}")
+            status = e.response.status_code if e.response is not None else "unknown"
+            raise MissingCredentialsError(f"HTTP error retrieving credentials: {status}")
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
@@ -54,7 +55,7 @@ class CredentialManager(ABC):
         logger.debug("Credentials retrieved")
         return password_dict
 
-    def _get_credential(self, password_id: int) -> dict:
+    def _get_credential(self, password_id: int | str) -> dict:
         """
         Get a specific credential from the password list
 
@@ -72,7 +73,8 @@ class CredentialManager(ABC):
         except requests.Timeout:
             raise MissingCredentialsError(f"Timeout retrieving credential with ID {password_id}")
         except requests.HTTPError as e:
-            raise MissingCredentialsError(f"HTTP error retrieving credential {password_id}: {e.response.status_code}")
+            status = e.response.status_code if e.response is not None else "unknown"
+            raise MissingCredentialsError(f"HTTP error retrieving credential {password_id}: {status}")
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
@@ -138,7 +140,7 @@ class CredentialManager(ABC):
         logger.debug(f"Credentials for {username} retrieved")
         return return_credential
 
-    def get_credential_from_id(self, password_id: int) -> dict:
+    def get_credential_from_id(self, password_id: int | str) -> dict:
         """
         Get the credentials for a specific password ID
 
@@ -178,7 +180,8 @@ class CredentialManager(ABC):
         except requests.Timeout:
             raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
         except requests.HTTPError as e:
-            raise MissingCredentialsError(f"HTTP error retrieving credentials: {e.response.status_code}")
+            status = e.response.status_code if e.response is not None else "unknown"
+            raise MissingCredentialsError(f"HTTP error retrieving credentials: {status}")
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 

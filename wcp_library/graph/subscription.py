@@ -66,6 +66,7 @@ Dependencies:
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import requests
 
@@ -76,6 +77,28 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------- Subscription Functions ----------------------------------- #
+
+
+_NOTIFICATION_PATH = "/api/graph"
+_LIFECYCLE_PATH = "/api/lifecycle"
+
+
+def _required_field(subscription: dict, field: str, subscription_id: str) -> str:
+    """Read a field a subscription cannot be rebuilt without.
+
+    :param subscription: The subscription object as Graph returned it.
+    :param field: The field name to read.
+    :param subscription_id: The subscription ID, for the error message.
+    :return: The field value.
+    :raises ValueError: If the field is absent or empty.
+    """
+    value = subscription.get(field)
+    if not value:
+        raise ValueError(
+            f"Subscription {subscription_id} cannot be recreated: "
+            f"Graph returned no {field}"
+        )
+    return str(value)
 
 
 def create_subscription(
@@ -129,12 +152,12 @@ def create_subscription(
     url = f"{_GRAPH_ROOT}/subscriptions"
 
     expiration_datetime = _calculate_expiration_datetime(resource_type)
-    payload = {
+    payload: dict[str, Any] = {
         "changeType": change_type,
         "clientState": client_state,
         "resource": resource,
-        "notificationUrl": f"{notification_url}/api/graph",
-        "lifecycleNotificationUrl": f"{notification_url}/api/lifecycle",
+        "notificationUrl": f"{notification_url}{_NOTIFICATION_PATH}",
+        "lifecycleNotificationUrl": f"{notification_url}{_LIFECYCLE_PATH}",
         "expirationDateTime": expiration_datetime,
     }
     if include_resource_data:
@@ -401,14 +424,25 @@ def recreate_subscription(
     :raises requests.RequestException: If the HTTP request fails.
     """
     subscription = get_subscription(headers, subscription_id)
-    resource = subscription.get("resource")
+
+    stored_url = _required_field(subscription, "notificationUrl", subscription_id)
+    resource = _required_field(subscription, "resource", subscription_id)
+    change_type = _required_field(subscription, "changeType", subscription_id)
+    client_state = _required_field(subscription, "clientState", subscription_id)
+
+    # create_subscription appends "/api/graph" and "/api/lifecycle" itself, so
+    # the base URL has to be recovered from the stored value. Forwarding the
+    # stored URL unchanged appended the path a second time and pointed the new
+    # subscription at a dead endpoint, silently ending notifications.
+    notification_url = stored_url.removesuffix(_NOTIFICATION_PATH)
+
     return create_subscription(
         headers,
-        subscription.get("notificationUrl"),
+        notification_url,
         get_resource_type(resource),
         resource,
-        subscription.get("changeType"),
-        subscription.get("clientState"),
+        change_type,
+        client_state,
     )
 
 

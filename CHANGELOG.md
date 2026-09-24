@@ -6,6 +6,110 @@ do about it.
 
 Releases before 1.15.0 predate this file; see the git history for those.
 
+## 1.15.3
+
+### Breaking
+
+- **`browser_automation` `sharepoint_config` now takes a `GraphCredentials`.**
+  The `credentials` key replaces `app_id`, `app_secret`, and `tenant_id`;
+  `site_id` is unchanged. This keeps the client secret out of a dict handed to
+  a browser object, reuses one token across screenshots instead of requesting a
+  fresh one per screenshot, and lets `from_vault` pick up a rotated secret.
+
+  > Migration:
+  > ```python
+  > sp_config = {
+  >     "credentials": GraphCredentials.from_vault(vault_api_key, credential_id),
+  >     "site_id": site_id,
+  > }
+  > ```
+  > Use `GraphCredentials.from_app_registration(app_id, app_secret, tenant_id)`
+  > to keep passing those three values directly.
+
+  Note this is a breaking change in a patch release, contrary to the policy at
+  the top of this file. It was a deliberate call to keep it in this release
+  rather than hold it for 1.16.0.
+
+### Changed
+
+- **`graph.sharepoint.upload_multiple_files` raises again.** 1.15.1 reverted it
+  to returning `{"filename": ..., "error": ...}` entries; it now raises an
+  `ExceptionGroup` of the failures as 1.15.0 did, per
+  `docs/adr/0003-upload-multiple-files-raises.md`. It also collects **every**
+  exception type rather than only `requests.RequestException` and `TypeError`:
+  an exception left uncaught in a worker thread never reached the caller at
+  all, it printed a traceback and left that file's entry empty, which is the
+  silent failure the contract exists to prevent.
+
+  > Migration: `try` / `except*` instead of inspecting result entries.
+
+### Fixed
+
+- **`graph.subscription.recreate_subscription` pointed the new subscription at
+  a dead endpoint.** `create_subscription` appends `/api/graph` and
+  `/api/lifecycle` to the URL it is given, but `recreate_subscription` passed
+  the *stored* `notificationUrl` straight back in, so a recreated subscription
+  was registered against `<base>/api/graph/api/graph`. Graph accepts the
+  subscription, and notifications then go nowhere. The base URL is now
+  recovered before recreating.
+- **`recreate_subscription` forwarded missing fields as `None`.** A
+  subscription that came back without `notificationUrl`, `resource`,
+  `changeType`, or `clientState` produced a malformed payload, or crashed
+  inside `get_resource_type` with an `AttributeError`. It now raises
+  `ValueError` naming the missing field.
+- `credentials` (synchronous): the `requests.HTTPError` handlers formatted
+  `e.response.status_code` without checking that `.response` is set, so an
+  `HTTPError` carrying no response replaced the real failure with an
+  `AttributeError` from inside the error handler.
+- Type annotations that promised less than the code accepts:
+  `graph._iter_pages` rejected the `GraphCredentials` every caller passes it,
+  `REQUEST_TIMEOUT` was typed `int` though `set_request_timeout` accepts a
+  float, and `get_credential_from_id` was typed `int` though
+  `get_headers_from_vault` passes `int | str`. `get_headers_from_vault` also
+  documented a coercion to `int` that it never performed; the claim is gone.
+
+## 1.15.2
+
+### Fixed
+
+- `graph.subscription.get_resource_type` misclassified four resource shapes
+  that nest a specific collection under a generic scope segment: Teams channel
+  messages and chat messages resolved to `mail`, and To Do tasks and
+  user-scoped Copilot resources resolved to `directory`. Each was given the
+  lifetime and notification parser of the wrong resource type. Classification
+  is now an ordered, most-specific-first match over the path segments.
+
+## 1.15.1
+
+### Breaking
+
+- **`graph.sharepoint.upload_multiple_files` stopped raising** and returned
+  `{"filename": ..., "error": ...}` entries again, reverting the 1.15.0
+  contract. Restored in 1.15.3 — if you are pinned to 1.15.1 or 1.15.2, a
+  failed upload in a batch is reported in the result list and is easy to miss.
+- **`graph.sharepoint.get_file_metadata` was renamed `get_item_metadata`**, and
+  gained `item_id` addressing. The old name is gone, so a call to it raises
+  `AttributeError`.
+- **`graph.mail.parse_email_notification` was removed.** Use
+  `graph.get_resource_context`, which covers mail alongside every other
+  subscribable resource type and returns a dict rather than a two-tuple:
+  `context["user_id"]` and `context["message_id"]` replace the old tuple.
+- Several file helpers gained keyword-only `item_id`, and `move_file` and
+  `copy_file` gained `destination_id`, to address items by Graph ID instead of
+  path; `download_file` gained `filename`. These are additive, but `site_id`
+  and the path arguments became optional (`str | None`) to support the new
+  mode, so a positional call that relied on their order is worth re-checking.
+
+### Added
+
+- `graph.get_resource_context` — parses an incoming change or lifecycle
+  notification into the identifiers needed to act on the resource behind it.
+- `graph.subscription.get_resource_type` is now public.
+- `graph.sharepoint.get_changed_items` and `get_item_metadata` — delta (change)
+  tracking for drive items.
+- Folder addressing by `item_id` on the upload helpers, as an alternative to a
+  path, and `site_id` became optional where `drive_id` is given directly.
+
 ## 1.15.0
 
 ### Breaking
