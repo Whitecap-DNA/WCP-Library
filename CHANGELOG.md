@@ -6,6 +6,37 @@ do about it.
 
 Releases before 1.15.0 predate this file; see the git history for those.
 
+## 1.15.4
+
+### Fixed
+
+- **`graph.sharepoint.upload_file` built a malformed URL for path-based
+  uploads, so every one failed with HTTP 400.** Graph's path addressing is
+  `root:/{full-item-path}:/{action}`, where the item path includes the filename
+  for an upload. 1.15.1 closed the path at the folder and opened a second
+  segment for the filename:
+
+  ```
+  .../drive/root:/Folder:/file.csv:/content    1.15.1 - 1.15.3   400 BadRequest
+  .../drive/root:/Folder/file.csv:/content     1.15.0 and 1.15.4  201 Created
+  ```
+
+  Affects **1.15.1, 1.15.2 and 1.15.3**; 1.15.0 is correct. Anything calling
+  `upload_file` with `file_path` rather than `item_id` is affected, including
+  `upload_multiple_files`, which delegates to it, and the error-screenshot
+  upload in `browser_automation` — where a 400 replaces whatever error
+  triggered the screenshot.
+
+  The ID-based form is unchanged and was always correct:
+  `/items/{parent-id}:/{filename}:/content` is Graph's documented simple upload
+  for a new child of a folder addressed by ID.
+
+  The path branch now goes through `_resolve_item_url`, the helper the rest of
+  the module already uses, so one function owns that shape. Three regression
+  tests assert the URL offline, plus one for the batch path. **A test was
+  asserting the broken URL**, which is why this shipped green three times; that
+  assertion is corrected.
+
 ## 1.15.3
 
 ### Breaking

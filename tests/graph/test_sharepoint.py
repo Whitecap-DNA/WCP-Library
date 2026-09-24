@@ -459,6 +459,50 @@ class TestGetFileContentByIdMode:
 
 
 class TestUploadFile:
+    # Graph path addressing is root:/{full-item-path}:/{action}, where the
+    # item path includes the filename for an upload. 1.15.1 closed the path at
+    # the folder and opened a second segment for the filename, which Graph
+    # answers with 400, and the assertion in this class was updated to match
+    # the broken URL rather than the working one. These two pin the shapes.
+    def test_path_based_url_keeps_the_filename_inside_one_path_segment(self):
+        with patch(
+            "wcp_library.graph.sharepoint._request",
+            return_value=_ok_json({"parentReference": {"path": ""}}),
+        ) as mock_req:
+            sharepoint.upload_file(HEADERS, SITE_ID, "/Folder", "file.csv", b"data")
+
+        url = _called_url(mock_req)
+        assert "/root:/Folder/file.csv:/content" in url
+        assert "/root:/Folder:/file.csv" not in url
+
+    def test_id_based_url_addresses_a_new_child_of_the_parent_id(self):
+        # The ID form is different on purpose: /items/{parent-id}:/{filename}
+        # is Graph's documented simple upload for a new child of that folder.
+        with patch(
+            "wcp_library.graph.sharepoint._request",
+            return_value=_ok_json({"parentReference": {"path": ""}}),
+        ) as mock_req:
+            sharepoint.upload_file(
+                HEADERS, SITE_ID, None, "file.csv", b"data", item_id=ITEM_ID
+            )
+
+        assert f"/items/{ITEM_ID}:/file.csv:/content" in _called_url(mock_req)
+
+    def test_drive_id_path_upload_keeps_one_path_segment(self):
+        with patch(
+            "wcp_library.graph.sharepoint._request",
+            return_value=_ok_json({"parentReference": {"path": ""}}),
+        ) as mock_req:
+            sharepoint.upload_file(
+                HEADERS, SITE_ID, "/Folder", "file.csv", b"data", drive_id=DRIVE_ID
+            )
+
+        url = _called_url(mock_req)
+        assert url.startswith(
+            f"https://graph.microsoft.com/v1.0/drives/{DRIVE_ID}/root:/Folder/file.csv"
+        )
+        assert ":/file.csv" not in url.replace("/Folder/file.csv", "")
+
     def test_uploads_bytes_with_default_conflict_behavior(self):
         response_payload = {
             "id": "item-1",
@@ -480,7 +524,7 @@ class TestUploadFile:
             assert _called_method(mock_req) == "PUT"
             assert _called_url(mock_req) == (
                 f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:"
-                "/Shared Documents:/report.xlsx:/content"
+                "/Shared Documents/report.xlsx:/content"
                 "?@microsoft.graph.conflictBehavior=rename"
             )
             assert mock_req.call_args.kwargs["data"] == b"file-bytes"
@@ -607,6 +651,28 @@ class TestUploadMultipleFiles:
         assert len(group.exceptions) == 1
         assert isinstance(group.exceptions[0], TypeError)
         assert "file: /Docs/bad.txt" in group.exceptions[0].__notes__
+
+    def test_batch_uploads_use_the_path_based_url_shape(self):
+        # The batch delegates to upload_file, so it inherits the URL shape.
+        # Patching _request rather than upload_file is what makes that
+        # visible; the other tests in this class patch upload_file itself.
+        urls = []
+
+        def capture(method, url, headers, **kwargs):
+            urls.append(url)
+            return _ok_json({"parentReference": {"path": ""}})
+
+        with patch("wcp_library.graph.sharepoint._request", side_effect=capture):
+            sharepoint.upload_multiple_files(
+                HEADERS,
+                SITE_ID,
+                [("/Docs", "a.csv", b"a"), ("/Docs", "b.csv", b"b")],
+            )
+
+        assert len(urls) == 2
+        for url in urls:
+            assert "/root:/Docs/" in url
+            assert "/root:/Docs:/" not in url
 
     def test_an_unexpected_exception_still_reaches_the_caller(self):
         # An exception left uncaught in a worker thread never reaches the
