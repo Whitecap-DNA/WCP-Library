@@ -64,7 +64,7 @@ This module provides functions for interacting with Outlook mailboxes, emails, a
 - Parse Microsoft Graph change notifications into mailbox/message ID pairs.
 - Retrieve email metadata and list emails with optional folder filtering.
 - Fetch attachments with enriched metadata (name, extension split).
-- Async attachment saving via `aiofiles`.
+- Save attachments straight to disk.
 
 ## Subscription
 
@@ -782,7 +782,7 @@ attachments = get_attachments(headers, "user@contoso.com", message_id)
 
 `save_attachment(source: dict | bytes, location: Path) -> None`
 
-Save an attachment to disk. Accepts either a Graph API attachment dictionary (with `contentBytes` base64 field) or raw bytes. Uses async file writing via `aiofiles`.
+Save an attachment to disk. Accepts either a Graph API attachment dictionary (with `contentBytes` base64 field) or raw bytes.
 
 ```python
 save_attachment(attachment_dict, Path("/tmp/report.xlsx"))

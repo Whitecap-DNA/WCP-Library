@@ -6,6 +6,42 @@ class MissingCredentialsError(KeyError):
     pass
 
 
+def _common_entry(password_list_id: int, credentials_dict: dict) -> dict:
+    """
+    Build the fields every new vault entry shares.
+
+    :param password_list_id: The vault password list the entry belongs to.
+    :param credentials_dict: The caller's credentials dictionary.
+    :return: ``PasswordListID``, ``Title``, ``Notes`` and ``Password``.
+    """
+
+    return {
+        "PasswordListID": password_list_id,
+        "Title": credentials_dict.get('Title', credentials_dict['UserName']).upper(),
+        "Notes": credentials_dict.get('Notes'),
+        "Password": credentials_dict['Password'],
+    }
+
+
+def _parse_entry(password: dict) -> dict:
+    """
+    Flatten one vault entry into the credential dictionary callers receive.
+
+    :param password: One entry from the vault API response.
+    :return: ``PasswordID``, ``UserName``, ``Password``, each generic field by
+        its display name, and ``URL`` / ``OTP`` when present.
+    """
+
+    password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
+    for field in password['GenericFieldInfo']:
+        password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
+    if "URL" in password:
+        password_info['URL'] = password['URL']
+    if password['OTP']:
+        password_info['OTP'] = password['OTP']
+    return password_info
+
+
 class CredentialWriteError(Exception):
     """Raised when a credential could not be written to the Vault.
 

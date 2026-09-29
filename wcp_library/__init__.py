@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Generator
 
+# Unused here on purpose: a hidden import so PyInstaller bundles pbkdf2.
 import cryptography.hazmat.primitives.kdf.pbkdf2
 
 # PyInstaller import

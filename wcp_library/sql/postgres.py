@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterator, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -353,10 +353,7 @@ class Transaction(SyncExecutor):
         for item in queries:
             query = item[0]
             packed_values = item[1] if len(item) > 1 else None
-            if packed_values:
-                cursor = self._connection.execute(query, packed_values)
-            else:
-                cursor = self._connection.execute(query)
+            cursor = self._connection.execute(query, packed_values or None)
             total += max(cursor.rowcount, 0)
         return total
 
@@ -364,10 +361,7 @@ class Transaction(SyncExecutor):
         self, query: SQL | Composed | str, packed_data: dict | None = None
     ) -> list[tuple]:
         cursor = self._connection.cursor()
-        if packed_data:
-            cursor.execute(query, packed_data)
-        else:
-            cursor.execute(query)
+        cursor.execute(query, packed_data or None)
         return cursor.fetchall()
 
     def commit(self) -> None:
@@ -469,7 +463,6 @@ class PostgresConnection(SyncExecutor):
 
         if self.use_pool:
             self._session_pool = connection
-            self._session_pool.open()
         else:
             self._connection = connection
 
@@ -487,6 +480,25 @@ class PostgresConnection(SyncExecutor):
             if self._connection is None or self._connection.closed:
                 self._connect()
             return self._connection
+
+    @contextmanager
+    def _borrow(self) -> Iterator[Transaction]:
+        """Check out a connection for one primitive call.
+
+        Yields a :class:`Transaction` so the primitive runs on the same
+        code as a transactional block. Commits on normal exit when
+        ``autocommit`` is on, and returns a pooled connection either way.
+
+        :yield: a :class:`Transaction` bound to the checked-out connection.
+        """
+        connection = self._get_connection()
+        try:
+            yield Transaction(self, connection)
+            if self._autocommit:
+                connection.commit()
+        finally:
+            if self.use_pool:
+                self._session_pool.putconn(connection)
 
     def set_user(self, credentials_dict: dict) -> None:
         """Store credentials and open the connection (or pool).
@@ -519,16 +531,8 @@ class PostgresConnection(SyncExecutor):
         :return: rows affected (``0`` for DDL or statements where the
             driver does not report a rowcount)
         """
-        connection = self._get_connection()
-        try:
-            cursor = connection.execute(query)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                self._session_pool.putconn(connection)
+        with self._borrow() as tx:
+            return tx.execute(query)
 
     @tenacity_retry(**postgres_retry_kwargs)
     def safe_execute(
@@ -541,16 +545,8 @@ class PostgresConnection(SyncExecutor):
         :param packed_values: values for the placeholders
         :return: rows affected
         """
-        connection = self._get_connection()
-        try:
-            cursor = connection.execute(query, packed_values)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                self._session_pool.putconn(connection)
+        with self._borrow() as tx:
+            return tx.safe_execute(query, packed_values)
 
     @tenacity_retry(**postgres_retry_kwargs)
     def execute_multiple(
@@ -564,23 +560,8 @@ class PostgresConnection(SyncExecutor):
         :param queries: list of ``(query, packed_values_or_missing)`` tuples
         :return: sum of rows affected across all statements
         """
-        connection = self._get_connection()
-        try:
-            total = 0
-            for item in queries:
-                query = item[0]
-                packed_values = item[1] if len(item) > 1 else None
-                if packed_values:
-                    cursor = connection.execute(query, packed_values)
-                else:
-                    cursor = connection.execute(query)
-                total += max(cursor.rowcount, 0)
-            if self._autocommit:
-                connection.commit()
-            return total
-        finally:
-            if self.use_pool:
-                self._session_pool.putconn(connection)
+        with self._borrow() as tx:
+            return tx.execute_multiple(queries)
 
     @tenacity_retry(**postgres_retry_kwargs)
     def execute_many(
@@ -592,18 +573,8 @@ class PostgresConnection(SyncExecutor):
         :param dictionary: iterable of parameter dicts or tuples
         :return: rows affected
         """
-        connection = self._get_connection()
-        try:
-            connection.prepare_threshold = None
-            cursor = connection.cursor()
-            cursor.executemany(query, dictionary, returning=False)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                self._session_pool.putconn(connection)
+        with self._borrow() as tx:
+            return tx.execute_many(query, dictionary)
 
     @tenacity_retry(**postgres_retry_kwargs)
     def fetch_data(
@@ -615,20 +586,8 @@ class PostgresConnection(SyncExecutor):
         :param packed_data: optional parameter dict
         :return: list of row tuples
         """
-        connection = self._get_connection()
-        try:
-            cursor = connection.cursor()
-            if packed_data:
-                cursor.execute(query, packed_data)
-            else:
-                cursor.execute(query)
-            rows = cursor.fetchall()
-            if self._autocommit:
-                connection.commit()
-            return rows
-        finally:
-            if self.use_pool:
-                self._session_pool.putconn(connection)
+        with self._borrow() as tx:
+            return tx.fetch_data(query, packed_data)
 
     def commit(self) -> None:
         """Commit the current transaction.
@@ -914,10 +873,7 @@ class AsyncTransaction(AsyncExecutor):
         for item in queries:
             query = item[0]
             packed_values = item[1] if len(item) > 1 else None
-            if packed_values:
-                cursor = await self._connection.execute(query, packed_values)
-            else:
-                cursor = await self._connection.execute(query)
+            cursor = await self._connection.execute(query, packed_values or None)
             total += max(cursor.rowcount, 0)
         return total
 
@@ -925,10 +881,7 @@ class AsyncTransaction(AsyncExecutor):
         self, query: SQL | Composed | str, packed_data: dict | None = None
     ) -> list[tuple]:
         cursor = self._connection.cursor()
-        if packed_data:
-            await cursor.execute(query, packed_data)
-        else:
-            await cursor.execute(query)
+        await cursor.execute(query, packed_data or None)
         return await cursor.fetchall()
 
     async def commit(self) -> None:
@@ -1052,6 +1005,25 @@ class AsyncPostgresConnection(AsyncExecutor):
                 await self._connect()
             return self._connection
 
+    @asynccontextmanager
+    async def _borrow(self) -> AsyncIterator[AsyncTransaction]:
+        """Check out a connection for one primitive call.
+
+        Yields an :class:`AsyncTransaction` so the primitive runs on the
+        same code as a transactional block. Commits on normal exit when
+        ``autocommit`` is on, and returns a pooled connection either way.
+
+        :yield: an :class:`AsyncTransaction` bound to the checked-out connection.
+        """
+        connection = await self._get_connection()
+        try:
+            yield AsyncTransaction(self, connection)
+            if self._autocommit:
+                await connection.commit()
+        finally:
+            if self.use_pool:
+                await self._session_pool.putconn(connection)
+
 
     async def set_user(self, credentials_dict: dict) -> None:
         """Store credentials and open the connection (or pool).
@@ -1084,16 +1056,8 @@ class AsyncPostgresConnection(AsyncExecutor):
         :return: rows affected (``0`` for DDL or statements where the
             driver does not report a rowcount)
         """
-        connection = await self._get_connection()
-        try:
-            cursor = await connection.execute(query)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                await connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                await self._session_pool.putconn(connection)
+        async with self._borrow() as tx:
+            return await tx.execute(query)
 
     @tenacity_retry(**postgres_retry_kwargs)
     async def safe_execute(
@@ -1106,16 +1070,8 @@ class AsyncPostgresConnection(AsyncExecutor):
         :param packed_values: values for the placeholders
         :return: rows affected
         """
-        connection = await self._get_connection()
-        try:
-            cursor = await connection.execute(query, packed_values)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                await connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                await self._session_pool.putconn(connection)
+        async with self._borrow() as tx:
+            return await tx.safe_execute(query, packed_values)
 
     @tenacity_retry(**postgres_retry_kwargs)
     async def execute_multiple(
@@ -1129,23 +1085,8 @@ class AsyncPostgresConnection(AsyncExecutor):
         :param queries: list of ``(query, packed_values_or_missing)`` tuples
         :return: sum of rows affected across all statements
         """
-        connection = await self._get_connection()
-        try:
-            total = 0
-            for item in queries:
-                query = item[0]
-                packed_values = item[1] if len(item) > 1 else None
-                if packed_values:
-                    cursor = await connection.execute(query, packed_values)
-                else:
-                    cursor = await connection.execute(query)
-                total += max(cursor.rowcount, 0)
-            if self._autocommit:
-                await connection.commit()
-            return total
-        finally:
-            if self.use_pool:
-                await self._session_pool.putconn(connection)
+        async with self._borrow() as tx:
+            return await tx.execute_multiple(queries)
 
     @tenacity_retry(**postgres_retry_kwargs)
     async def execute_many(
@@ -1157,18 +1098,8 @@ class AsyncPostgresConnection(AsyncExecutor):
         :param dictionary: iterable of parameter dicts or tuples
         :return: rows affected
         """
-        connection = await self._get_connection()
-        try:
-            connection.prepare_threshold = None
-            cursor = connection.cursor()
-            await cursor.executemany(query, dictionary, returning=False)
-            rowcount = max(cursor.rowcount, 0)
-            if self._autocommit:
-                await connection.commit()
-            return rowcount
-        finally:
-            if self.use_pool:
-                await self._session_pool.putconn(connection)
+        async with self._borrow() as tx:
+            return await tx.execute_many(query, dictionary)
 
     @tenacity_retry(**postgres_retry_kwargs)
     async def fetch_data(
@@ -1180,20 +1111,8 @@ class AsyncPostgresConnection(AsyncExecutor):
         :param packed_data: optional parameter dict
         :return: list of row tuples
         """
-        connection = await self._get_connection()
-        try:
-            cursor = connection.cursor()
-            if packed_data:
-                await cursor.execute(query, packed_data)
-            else:
-                await cursor.execute(query)
-            rows = await cursor.fetchall()
-            if self._autocommit:
-                await connection.commit()
-            return rows
-        finally:
-            if self.use_pool:
-                await self._session_pool.putconn(connection)
+        async with self._borrow() as tx:
+            return await tx.fetch_data(query, packed_data)
 
     async def commit(self) -> None:
         """Commit the current transaction.

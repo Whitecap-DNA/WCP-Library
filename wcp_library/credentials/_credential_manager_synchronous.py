@@ -5,7 +5,7 @@ import requests
 from yarl import URL
 
 from wcp_library.credentials import (CredentialWriteError,
-                                     MissingCredentialsError)
+                                     MissingCredentialsError, _parse_entry)
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +42,7 @@ class CredentialManager(ABC):
         if not passwords:
             raise MissingCredentialsError("No credentials found in this Password List")
 
-        password_dict = {}
-        for password in passwords:
-            password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
-            for field in password['GenericFieldInfo']:
-                password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
-            password_dict[password["UserName"].lower()] = password_info
-            if "URL" in password:
-                password_info['URL'] = password['URL']
-            if password['OTP']:
-                password_dict[password['UserName'].lower()]['OTP'] = password['OTP']
+        password_dict = {password["UserName"].lower(): _parse_entry(password) for password in passwords}
         logger.debug("Credentials retrieved")
         return password_dict
 
@@ -82,15 +73,8 @@ class CredentialManager(ABC):
             raise MissingCredentialsError(f"No credentials found with ID {password_id}")
         password = password[0]
 
-        password_info = {'PasswordID': password['PasswordID'], 'UserName': password['UserName'], 'Password': password['Password']}
-        for field in password['GenericFieldInfo']:
-            password_info[field['DisplayName']] = field['Value'].lower() if field['DisplayName'].lower() == 'username' else field['Value']
-        if "URL" in password:
-            password_info['URL'] = password['URL']
-        if password['OTP']:
-            password_info['OTP'] = password['OTP']
         logger.debug("Credential retrieved")
-        return password_info
+        return _parse_entry(password)
 
     def _publish_new_password(self, data: dict) -> bool:
         """
