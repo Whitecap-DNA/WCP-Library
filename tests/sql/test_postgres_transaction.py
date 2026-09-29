@@ -84,7 +84,7 @@ class TestAsyncTransactionPrimitives:
         tx = AsyncTransaction(parent=None, connection=conn)
         rows = await tx.fetch_data("SELECT * FROM t")
         assert rows == [(1, "a"), (2, "b")]
-        cursor.execute.assert_awaited_once_with("SELECT * FROM t")
+        cursor.execute.assert_awaited_once_with("SELECT * FROM t", None)
 
     async def test_manual_commit_sets_flag(self):
         conn, _, _ = _make_mock_connection()

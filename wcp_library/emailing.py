@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class MailServer:
     def __init__(self, internet_password_key: str, smtp2go_credential_id: int) -> None:
-        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca", "dataintegrationssupport@wcap.ca"]
+        self._approved_senders = ["python@wcap.ca", "workflow@wcap.ca", "reports@wcap.ca"]
         logger.debug(
             "Fetching SMTP2GO credentials from vault (entry ID: %d).",
             smtp2go_credential_id,
@@ -77,30 +77,16 @@ class MailServer:
             )
             raise ValueError(f"Sender '{sender}' is not approved to send emails.")
 
-        # Validate email addresses
-        def validate_email(email: str) -> bool:
-            return bool(EMAIL_PATTERN.match(email))
-
-        if not validate_email(sender):
-            raise ValueError(f"Invalid sender email address: {sender}")
-
         # Normalize parameters
         recipients = _normalise_addresses(recipients)
         cc = _normalise_addresses(cc)
         bcc = _normalise_addresses(bcc)
         attachments = attachments or []
 
-        for recipient in recipients:
-            if not validate_email(recipient):
-                raise ValueError(f"Invalid recipient email address: {recipient}")
-
-        for email in cc:
-            if not validate_email(email):
-                raise ValueError(f"Invalid CC email address: {email}")
-
-        for email in bcc:
-            if not validate_email(email):
-                raise ValueError(f"Invalid BCC email address: {email}")
+        for kind, addresses in (("sender", [sender]), ("recipient", recipients), ("CC", cc), ("BCC", bcc)):
+            for email in addresses:
+                if not EMAIL_PATTERN.match(email):
+                    raise ValueError(f"Invalid {kind} email address: {email}")
 
         msg = self._build_message(sender, recipients, subject, body, body_type, cc)
 

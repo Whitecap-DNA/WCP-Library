@@ -2,15 +2,15 @@
 Browser automation framework using Selenium WebDriver.
 
 Provides a base class for browser setup, option configuration, and lifecycle
-management, with concrete subclasses for Chrome, Firefox, and Edge. The
-``Browser`` context manager simplifies session creation and teardown.
+management, with concrete subclasses for Chrome, Firefox, and Edge. Each
+subclass is its own context manager.
 
 Classes
 -------
 BaseSelenium
     Abstract base class encapsulating shared WebDriver functionality.
 Browser
-    Context manager that pairs a browser subclass with its options.
+    Namespace for the concrete browser subclasses.
 Browser.Chrome
     Chrome-specific WebDriver implementation.
 Browser.Firefox
@@ -30,12 +30,11 @@ config = {
     "site_id": "site-id",
 }
 
-with Browser(Browser.Firefox, browser_options=browser_options, sharepoint_config=config) as browser:
+with Browser.Firefox(browser_options=browser_options, sharepoint_config=config) as browser:
     browser.go_to("https://example.com")
 
 """
 
-import inspect
 import logging
 import re
 import time
@@ -85,15 +84,11 @@ class BaseSelenium(UIInteractions, WEInteractions):
         """
         Container for all Selenium exception classes.
 
-        :ivar ALL: Every ``Exception`` subclass defined in
-            ``selenium.common.exceptions``.
+        :ivar ALL: The base of every exception in
+            ``selenium.common.exceptions``, so catching it catches them all.
         """
 
-        ALL: tuple[type, ...] = tuple(
-            obj
-            for _, obj in inspect.getmembers(selenium_exceptions)
-            if inspect.isclass(obj) and issubclass(obj, Exception)
-        )
+        ALL: tuple[type, ...] = (selenium_exceptions.WebDriverException,)
 
     def __init__(
         self,
@@ -348,48 +343,14 @@ class BaseSelenium(UIInteractions, WEInteractions):
 
 class Browser:
     """
-    Context manager for browser session lifecycle.
+    Namespace for the concrete browsers. Each one is its own context
+    manager, which creates the driver (with retry) and quits it on exit::
 
-    Wraps a browser subclass (``Browser.Firefox``, ``Browser.Chrome``, or
-    ``Browser.Edge``) and manages driver creation and teardown.
-
-    :param browser_class: The browser subclass to instantiate (e.g.
-        ``Browser.Firefox``).
-    :param browser_options: Custom WebDriver options forwarded to the browser subclass.
-    :param sharepoint_config: Configuration for uploading error screenshots to
-        SharePoint.
+        with Browser.Firefox(browser_options, sharepoint_config) as browser:
+            browser.go_to("https://example.com")
     """
 
     SeleniumExceptions = BaseSelenium.SeleniumExceptions
-
-    def __init__(
-        self,
-        browser_class: type,
-        browser_options: dict | None = None,
-        sharepoint_config: dict | None = None,
-    ) -> None:
-        self.browser_class = browser_class
-        self.browser_options = browser_options or {}
-        self.sharepoint_config = sharepoint_config
-        self.browser_instance: BaseSelenium | None = None
-
-    def __enter__(self) -> BaseSelenium:
-        self.browser_instance = self.browser_class(
-            self.browser_options, self.sharepoint_config
-        )
-        self.browser_instance.driver = self.browser_instance.create_driver()
-        return self.browser_instance
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if exc_type:
-            logger.error(
-                "Exception occurred: %s: %s\nTraceback: %s",
-                exc_type.__name__ if exc_type else None,
-                exc_val,
-                exc_tb,
-            )
-        if self.browser_instance and self.browser_instance.driver:
-            self.browser_instance.driver.quit()
 
     # ------------------------------------------------------------------
     # Browser subclasses

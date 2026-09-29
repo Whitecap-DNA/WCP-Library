@@ -6,6 +6,43 @@ do about it.
 
 Releases before 1.15.0 predate this file; see the git history for those.
 
+## 1.16.1
+
+### Breaking
+
+- **`dataintegrationssupport@wcap.ca` is no longer an approved sender** for
+  `MailServer`. Sending from it now raises `ValueError`; use one of
+  `python@`, `workflow@` or `reports@wcap.ca`.
+
+- **`wcp_library.sql.oracle` is removed**, along with
+  `wcp_library.retry.oracle_retry_kwargs`, `ORACLE_RETRY_CODES`, and the
+  `oracledb` dependency. `wcp_library.credentials.oracle` stays: it only
+  reads and writes the vault's Oracle password list.
+
+  > Migration: stay on 1.15.x for Oracle work, or use `oracledb` directly.
+
+- **`Browser` is now just a namespace; the concrete browsers are the context
+  managers.** The `Browser(browser_class, ...)` wrapper duplicated the
+  lifecycle each browser already has, and skipped its driver-creation retry.
+
+  > Migration:
+  > ```python
+  > # before
+  > with Browser(Browser.Firefox, options, sharepoint_config=sp_config) as driver:
+  > # after
+  > with Browser.Firefox(options, sharepoint_config=sp_config) as driver:
+  > ```
+
+### Changed
+
+- `Browser.SeleniumExceptions.ALL` is `(WebDriverException,)`, the base of every
+  Selenium exception, instead of a scan of the module. It catches the same
+  set of exceptions.
+- `PostgresConnection` / `AsyncPostgresConnection` primitives run through the
+  same code as `Transaction` / `AsyncTransaction`, so the connection classes no
+  longer keep their own copy of each one. Behaviour is unchanged.
+- Dropped the unused `aiofiles` and `pycryptodome` dependencies.
+
 ## 1.15.4
 
 ### Fixed

@@ -4,7 +4,7 @@ This library provides a structured and extensible framework for browser automati
 
 ## Browser
 
-This module defines the foundational architecture for browser automation. It introduces a base class (`BaseSelenium`) for shared browser logic and specialized subclasses for Chrome, Firefox, and Edge. A standalone context manager (`Browser`) streamlines browser session management.
+This module defines the foundational architecture for browser automation. It introduces a base class (`BaseSelenium`) for shared browser logic and specialized subclasses for Chrome, Firefox, and Edge, grouped under `Browser`. Each subclass is a context manager that handles session setup and teardown.
 
 ### Key Features
 
@@ -12,7 +12,7 @@ This module defines the foundational architecture for browser automation. It int
 - Supports Firefox, Edge, and Chrome.
 - Support for browser-specific configurations via JSON-style dictionaries.
 - Optional SharePoint integration for uploading error screenshots.
-- Context manager (`Browser`) for automatic setup and teardown of browser sessions.
+- Each browser (`Browser.Firefox`, `Browser.Edge`, `Browser.Chrome`) is a context manager for automatic setup and teardown of browser sessions.
 - Seamless integration with interaction utilities from `interactions.py`.
 - Extensible via `create_driver` — subclass `BaseSelenium` to launch a browser or driver configuration the library does not ship with.
 - 5xx error-page detection (`is_server_error_page`) so a gateway/server error page can be told apart from real content.
@@ -39,22 +39,27 @@ from wcp_library.browser_automation.browser import Browser
 
 options = {"timeouts": {"implicit": 5000, "pageLoad": 30000}}
 
-with Browser(Browser.Firefox, options) as driver:
+with Browser.Firefox(options) as driver:
     driver.go_to("https://example.com")
 ```
+
+**Changed in 1.16.1.** This was `with Browser(Browser.Firefox, options) as driver:`.
+The `Browser(...)` wrapper is gone; `Browser` now only groups the browser
+classes, and each one is its own context manager.
 
 ### With SharePoint error screenshots
 
 ```python
 from wcp_library.browser_automation.browser import Browser
+from wcp_library.graph import GraphCredentials
 
 options = {"timeouts": {"implicit": 5000}}
 sp_config = {
-    "headers": {"Authorization": "Bearer <token>"},
+    "credentials": GraphCredentials.from_vault(vault_internet_api_key, credential_id),
     "site_id": "<site-id>",
 }
 
-with Browser(Browser.Firefox, options, sharepoint_config=sp_config) as driver:
+with Browser.Firefox(options, sharepoint_config=sp_config) as driver:
     driver.go_to("https://example.com")
 ```
 
@@ -116,7 +121,7 @@ you hold the app id, secret, and tenant id directly.
 
 `create_driver(self) -> webdriver.Remote`
 
-Create and return the Selenium WebDriver instance backing the session. `BaseSelenium.create_driver` raises `NotImplementedError`, so every subclass **must** override it. `Browser.__enter__` calls it once when the context manager is entered, and assigns the result to the session's `driver` attribute.
+Create and return the Selenium WebDriver instance backing the session. `BaseSelenium.create_driver` raises `NotImplementedError`, so every subclass **must** override it. `BaseSelenium.__enter__` calls it when the context manager is entered, retrying on `WebDriverException`, and assigns the result to the session's `driver` attribute.
 
 Override it to launch a browser the library does not ship with, or to launch one of the supported browsers differently — against a Selenium Grid, say, or with a driver service the built-in subclasses do not configure. Call `self._add_options(options)` to apply the `browser_options` dictionary passed to the constructor, so a custom subclass honours the same option format as the built-in ones.
 
@@ -124,7 +129,7 @@ Override it to launch a browser the library does not ship with, or to launch one
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 
-from wcp_library.browser_automation.browser import BaseSelenium, Browser
+from wcp_library.browser_automation.browser import BaseSelenium
 
 
 class RemoteChrome(BaseSelenium):
@@ -139,7 +144,7 @@ class RemoteChrome(BaseSelenium):
         )
 
 
-with Browser(RemoteChrome, {"timeouts": {"implicit": 5000}}) as driver:
+with RemoteChrome({"timeouts": {"implicit": 5000}}) as driver:
     driver.go_to("https://example.com")
 ```
 
@@ -149,14 +154,14 @@ The subclass inherits every interaction helper, the SharePoint error-screenshot 
 
 `BaseSelenium` (and, by alias, `Browser`) exposes a nested `SeleniumExceptions` class that bundles the Selenium exception hierarchy for convenient `except` clauses.
 
-- `SeleniumExceptions.ALL` is a `tuple[type, ...]` containing every `Exception` subclass defined in `selenium.common.exceptions` (discovered at import time via `inspect.getmembers`). Typical members include `WebDriverException`, `TimeoutException`, `NoSuchElementException`, `StaleElementReferenceException`, `ElementClickInterceptedException`, etc.
+- `SeleniumExceptions.ALL` is `(WebDriverException,)`. Every exception in `selenium.common.exceptions` subclasses `WebDriverException`, so this catches `TimeoutException`, `NoSuchElementException`, `StaleElementReferenceException`, `ElementClickInterceptedException`, and the rest.
 
 Use it to catch any Selenium-originating error in one shot:
 
 ```python
 from wcp_library.browser_automation.browser import Browser
 
-with Browser(Browser.Firefox, options) as driver:
+with Browser.Firefox(options) as driver:
     try:
         driver.press_button("#submit")
     except Browser.SeleniumExceptions.ALL:

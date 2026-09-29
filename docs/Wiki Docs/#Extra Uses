@@ -39,7 +39,7 @@ from wcp_library.retry import make_generic_retry
 def something(): ...
 ```
 
-`wcp_library.retry` also exports pre-built SQL and Graph retry strategies (`postgres_retry_kwargs`, `oracle_retry_kwargs`, `graph_retry_kwargs`) — consumed internally by the library's SQL connection classes and Graph helpers. See `wcp_library/retry.py` for the full set.
+`wcp_library.retry` also exports pre-built SQL and Graph retry strategies (`postgres_retry_kwargs`, `graph_retry_kwargs`) — consumed internally by the library's SQL connection classes and Graph helpers. See `wcp_library/retry.py` for the full set.
 
 # generate_password
 
