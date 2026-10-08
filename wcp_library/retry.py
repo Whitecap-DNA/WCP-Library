@@ -9,8 +9,9 @@ them via tenacity's decorator/`Retrying`/`AsyncRetrying` surface:
     @tenacity_retry(**postgres_retry_kwargs)
     def execute(self, query): ...
 
-Three public policies:
+Four public policies:
 * ``postgres_retry_kwargs`` -- tiered SQL retry for psycopg errors.
+* ``oracle_retry_kwargs`` -- tiered SQL retry for oracledb errors.
 * ``graph_retry_kwargs`` -- HTTP retry for Microsoft Graph calls.
 * ``make_generic_retry(exceptions, ...)`` -- factory for arbitrary
   exception-list retry with exp backoff + jitter.
@@ -20,6 +21,7 @@ import logging
 import random
 from typing import Any
 
+import oracledb
 import psycopg
 import requests
 from tenacity import (retry_if_exception, retry_if_exception_type,
@@ -74,13 +76,17 @@ _POSTGRES_CONNECTION_LOSS = frozenset({"08001", "08004"})
 _POSTGRES_TRANSIENT = frozenset({"40P01"})
 POSTGRES_RETRY_CODES = _POSTGRES_CONNECTION_LOSS | _POSTGRES_TRANSIENT
 
+_ORACLE_CONNECTION_LOSS = frozenset({"ORA-01033", "DPY-6005", "DPY-4011"})
+_ORACLE_TRANSIENT = frozenset({"ORA-08103", "ORA-04021", "ORA-01652"})
+ORACLE_RETRY_CODES = _ORACLE_CONNECTION_LOSS | _ORACLE_TRANSIENT
+
 GRAPH_RETRIABLE_STATUSES = frozenset({429, 503, 504})
 
 
 def _extract_full_code(exc: BaseException) -> str | None:
     """Pull ``full_code`` off the driver's error object if present.
 
-    psycopg puts a structured error object as
+    psycopg and oracledb both put a structured error object as
     ``exc.args[0]`` with a ``full_code`` attribute. Returns None when
     the exception doesn't fit that shape.
     """
@@ -154,6 +160,13 @@ postgres_retry_kwargs = _make_sql_retry(
     connection_loss_codes=_POSTGRES_CONNECTION_LOSS,
     transient_codes=_POSTGRES_TRANSIENT,
     name="postgres",
+)
+
+oracle_retry_kwargs = _make_sql_retry(
+    catchable=(oracledb.OperationalError, oracledb.DatabaseError),
+    connection_loss_codes=_ORACLE_CONNECTION_LOSS,
+    transient_codes=_ORACLE_TRANSIENT,
+    name="oracle",
 )
 
 
