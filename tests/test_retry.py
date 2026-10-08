@@ -28,10 +28,13 @@ class TestExtractFullCode:
 
 
 import psycopg
+import oracledb
 
 from wcp_library.retry import (
     postgres_retry_kwargs,
+    oracle_retry_kwargs,
     POSTGRES_RETRY_CODES,
+    ORACLE_RETRY_CODES,
 )
 
 
@@ -96,6 +99,26 @@ class TestPostgresRetryStrategy:
         assert matching, f"Expected log record mentioning 'waiting 300.0s'; got {[r.getMessage() for r in caplog.records]}"
 
 
+class TestOracleRetryStrategy:
+    def test_connection_loss_waits_300_seconds(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, "ORA-01033")
+        retry_state.attempt_number = 1
+        wait = oracle_retry_kwargs["wait"](retry_state)
+        assert wait == 300.0
+
+    def test_transient_exp_backoff(self):
+        retry_state = MagicMock()
+        retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, "ORA-08103")
+        retry_state.attempt_number = 1
+        wait = oracle_retry_kwargs["wait"](retry_state)
+        assert 1.0 <= wait <= 4.0
+
+    def test_all_retry_codes_match(self):
+        for code in ORACLE_RETRY_CODES:
+            retry_state = MagicMock()
+            retry_state.outcome.exception.return_value = _mk_error(oracledb.OperationalError, code)
+            assert oracle_retry_kwargs["retry"](retry_state), code
 
 
 import requests

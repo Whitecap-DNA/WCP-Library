@@ -6,6 +6,15 @@ do about it.
 
 Releases before 1.15.0 predate this file; see the git history for those.
 
+## 1.16.2
+
+### Fixed
+
+- **`wcp_library.sql.oracle` is back**, along with
+  `wcp_library.retry.oracle_retry_kwargs`, `ORACLE_RETRY_CODES`, and the
+  `oracledb` dependency. It was removed in 1.16.1 while still in use; the
+  code is unchanged from 1.15.4.
+
 ## 1.16.1
 
 ### Breaking
