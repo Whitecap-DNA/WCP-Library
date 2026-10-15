@@ -1,5 +1,5 @@
 import logging
-from abc import ABC,abstractmethod
+from abc import ABC, abstractmethod
 
 import requests
 from yarl import URL
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 class CredentialManager(ABC):
     def __init__(self, api_key: str, password_list_id: int):
         self.password_url = URL("https://vault.wcap.ca/api/passwords/")
+        self.document_url = URL("https://vault.wcap.ca/api/document/")
         self.api_key = api_key
-        self.headers = {"APIKey": self.api_key, 'Reason': 'Python Script Access'}
+        self.headers = {"APIKey": self.api_key, "Reason": "Python Script Access"}
         self._password_list_id = password_list_id
 
     def _get_credentials(self) -> dict:
@@ -32,17 +33,24 @@ class CredentialManager(ABC):
             response.raise_for_status()
             passwords = response.json()
         except requests.Timeout:
-            raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
+            raise MissingCredentialsError(
+                f"Timeout retrieving credentials from password list {self._password_list_id}"
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "unknown"
-            raise MissingCredentialsError(f"HTTP error retrieving credentials: {status}")
+            raise MissingCredentialsError(
+                f"HTTP error retrieving credentials: {status}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
         if not passwords:
             raise MissingCredentialsError("No credentials found in this Password List")
 
-        password_dict = {password["UserName"].lower(): _parse_entry(password) for password in passwords}
+        password_dict = {
+            password["UserName"].lower(): _parse_entry(password)
+            for password in passwords
+        }
         logger.debug("Credentials retrieved")
         return password_dict
 
@@ -55,17 +63,21 @@ class CredentialManager(ABC):
         """
 
         logger.debug(f"Getting credential with ID {password_id}")
-        url = (self.password_url / str(password_id))
+        url = self.password_url / str(password_id)
 
         try:
             response = requests.get(str(url), headers=self.headers, timeout=30)
             response.raise_for_status()
             password = response.json()
         except requests.Timeout:
-            raise MissingCredentialsError(f"Timeout retrieving credential with ID {password_id}")
+            raise MissingCredentialsError(
+                f"Timeout retrieving credential with ID {password_id}"
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "unknown"
-            raise MissingCredentialsError(f"HTTP error retrieving credential {password_id}: {status}")
+            raise MissingCredentialsError(
+                f"HTTP error retrieving credential {password_id}: {status}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
@@ -87,7 +99,9 @@ class CredentialManager(ABC):
         """
 
         try:
-            response = requests.post(str(self.password_url), json=data, headers=self.headers, timeout=30)
+            response = requests.post(
+                str(self.password_url), json=data, headers=self.headers, timeout=30
+            )
         except requests.Timeout as e:
             raise CredentialWriteError(
                 f"Timeout creating credentials for {data['UserName']}"
@@ -120,7 +134,9 @@ class CredentialManager(ABC):
         try:
             return_credential = credentials[username.lower()]
         except KeyError:
-            raise MissingCredentialsError(f"Credentials for {username} not found in this Password List")
+            raise MissingCredentialsError(
+                f"Credentials for {username} not found in this Password List"
+            )
         logger.debug(f"Credentials for {username} retrieved")
         return return_credential
 
@@ -133,7 +149,6 @@ class CredentialManager(ABC):
         """
 
         return self._get_credential(password_id)
-
 
     def update_credential(self, credentials_dict: dict) -> bool:
         """
@@ -162,26 +177,39 @@ class CredentialManager(ABC):
             response.raise_for_status()
             passwords = response.json()
         except requests.Timeout:
-            raise MissingCredentialsError(f"Timeout retrieving credentials from password list {self._password_list_id}")
+            raise MissingCredentialsError(
+                f"Timeout retrieving credentials from password list {self._password_list_id}"
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "unknown"
-            raise MissingCredentialsError(f"HTTP error retrieving credentials: {status}")
+            raise MissingCredentialsError(
+                f"HTTP error retrieving credentials: {status}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
-        matching = [x for x in passwords if x['UserName'] == credentials_dict['UserName']]
+        matching = [
+            x for x in passwords if x["UserName"] == credentials_dict["UserName"]
+        ]
         if not matching:
             raise MissingCredentialsError(
                 f"Credentials for {credentials_dict['UserName']} not found in this Password List"
             )
         relevant_credential_entry = matching[0]
-        for field in relevant_credential_entry['GenericFieldInfo']:
-            if field['DisplayName'] in credentials_dict:
-                credentials_dict[field['GenericFieldID']] = credentials_dict[field['DisplayName']]
-                credentials_dict.pop(field['DisplayName'])
+        for field in relevant_credential_entry["GenericFieldInfo"]:
+            if field["DisplayName"] in credentials_dict:
+                credentials_dict[field["GenericFieldID"]] = credentials_dict[
+                    field["DisplayName"]
+                ]
+                credentials_dict.pop(field["DisplayName"])
 
         try:
-            response = requests.put(str(self.password_url), json=credentials_dict, headers=self.headers, timeout=30)
+            response = requests.put(
+                str(self.password_url),
+                json=credentials_dict,
+                headers=self.headers,
+                timeout=30,
+            )
         except requests.RequestException as e:
             raise CredentialWriteError(
                 f"Error updating credentials for {credentials_dict['UserName']}: {e}"
@@ -195,6 +223,44 @@ class CredentialManager(ABC):
 
         logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
         return True
+
+    def get_document(self, document_id: int | str) -> bytes:
+        """
+        Get the content of a password list document
+
+        The ID is shown on the Documents screen of the password list.
+
+        :param document_id: ID of the document
+        :return: Content of the document
+        :raises MissingCredentialsError: If the document cannot be read from the vault.
+        """
+
+        logger.debug(f"Getting document with ID {document_id}")
+        url = self.document_url / "passwordlist" / str(document_id)
+
+        try:
+            response = requests.get(str(url), headers=self.headers, timeout=30)
+            response.raise_for_status()
+            document = response.content
+        except requests.Timeout as e:
+            raise MissingCredentialsError(
+                f"Timeout retrieving document with ID {document_id}"
+            ) from e
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "unknown"
+            raise MissingCredentialsError(
+                f"HTTP error retrieving document {document_id}: {status}"
+            ) from e
+        except requests.RequestException as e:
+            raise MissingCredentialsError(
+                f"Error retrieving document {document_id}: {e}"
+            ) from e
+
+        if not document:
+            raise MissingCredentialsError(f"No document found with ID {document_id}")
+
+        logger.debug("Document retrieved")
+        return document
 
     @abstractmethod
     def new_credentials(self, credentials_dict: dict) -> bool:

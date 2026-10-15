@@ -1,5 +1,5 @@
 import logging
-from abc import ABC,abstractmethod
+from abc import ABC, abstractmethod
 
 import aiohttp
 from yarl import URL
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 class AsyncCredentialManager(ABC):
     def __init__(self, api_key: str, password_list_id: int):
         self.password_url = URL("https://vault.wcap.ca/api/passwords/")
+        self.document_url = URL("https://vault.wcap.ca/api/document/")
         self.api_key = api_key
-        self.headers = {"APIKey": self.api_key, 'Reason': 'Python Script Access'}
+        self.headers = {"APIKey": self.api_key, "Reason": "Python Script Access"}
         self._password_list_id = password_list_id
 
     async def _get_credentials(self) -> dict:
@@ -29,18 +30,27 @@ class AsyncCredentialManager(ABC):
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(str(url), headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.get(
+                    str(url),
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
                     response.raise_for_status()
                     passwords = await response.json()
         except aiohttp.ClientError as e:
-            raise MissingCredentialsError(f"Error retrieving credentials from password list {self._password_list_id}: {e}")
+            raise MissingCredentialsError(
+                f"Error retrieving credentials from password list {self._password_list_id}: {e}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
         if not passwords:
             raise MissingCredentialsError("No credentials found in this Password List")
 
-        password_dict = {password["UserName"].lower(): _parse_entry(password) for password in passwords}
+        password_dict = {
+            password["UserName"].lower(): _parse_entry(password)
+            for password in passwords
+        }
         logger.debug("Credentials retrieved")
         return password_dict
 
@@ -53,15 +63,21 @@ class AsyncCredentialManager(ABC):
         """
 
         logger.debug(f"Getting credential with ID {password_id}")
-        url = (self.password_url / str(password_id))
+        url = self.password_url / str(password_id)
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(str(url), headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.get(
+                    str(url),
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
                     response.raise_for_status()
                     password = await response.json()
         except aiohttp.ClientError as e:
-            raise MissingCredentialsError(f"Error retrieving credential with ID {password_id}: {e}")
+            raise MissingCredentialsError(
+                f"Error retrieving credential with ID {password_id}: {e}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
@@ -83,7 +99,12 @@ class AsyncCredentialManager(ABC):
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(str(self.password_url), json=data, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.post(
+                    str(self.password_url),
+                    json=data,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
                     status = response.status
         except aiohttp.ClientError as e:
             raise CredentialWriteError(
@@ -113,7 +134,9 @@ class AsyncCredentialManager(ABC):
         try:
             return_credential = credentials[username.lower()]
         except KeyError:
-            raise MissingCredentialsError(f"Credentials for {username} not found in this Password List")
+            raise MissingCredentialsError(
+                f"Credentials for {username} not found in this Password List"
+            )
         logger.debug(f"Credentials for {username} retrieved")
         return return_credential
 
@@ -150,26 +173,43 @@ class AsyncCredentialManager(ABC):
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(str(url), headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.get(
+                    str(url),
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
                     response.raise_for_status()
                     passwords = await response.json()
         except aiohttp.ClientError as e:
-            raise MissingCredentialsError(f"Error retrieving credentials from password list {self._password_list_id}: {e}")
+            raise MissingCredentialsError(
+                f"Error retrieving credentials from password list {self._password_list_id}: {e}"
+            )
         except ValueError as e:
             raise MissingCredentialsError(f"Invalid JSON response from vault: {e}")
 
-        matching_credentials = [x for x in passwords if x['UserName'] == credentials_dict['UserName']]
+        matching_credentials = [
+            x for x in passwords if x["UserName"] == credentials_dict["UserName"]
+        ]
         if not matching_credentials:
-            raise MissingCredentialsError(f"Credentials for {credentials_dict['UserName']} not found in this Password List")
+            raise MissingCredentialsError(
+                f"Credentials for {credentials_dict['UserName']} not found in this Password List"
+            )
         relevant_credential_entry = matching_credentials[0]
-        for field in relevant_credential_entry['GenericFieldInfo']:
-            if field['DisplayName'] in credentials_dict:
-                credentials_dict[field['GenericFieldID']] = credentials_dict[field['DisplayName']]
-                credentials_dict.pop(field['DisplayName'])
+        for field in relevant_credential_entry["GenericFieldInfo"]:
+            if field["DisplayName"] in credentials_dict:
+                credentials_dict[field["GenericFieldID"]] = credentials_dict[
+                    field["DisplayName"]
+                ]
+                credentials_dict.pop(field["DisplayName"])
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.put(str(self.password_url), json=credentials_dict, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.put(
+                    str(self.password_url),
+                    json=credentials_dict,
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
                     status = response.status
         except aiohttp.ClientError as e:
             raise CredentialWriteError(
@@ -184,6 +224,48 @@ class AsyncCredentialManager(ABC):
 
         logger.debug(f"Credentials for {credentials_dict['UserName']} updated")
         return True
+
+    async def get_document(self, document_id: int | str) -> bytes:
+        """
+        Get the content of a password list document
+
+        The ID is shown on the Documents screen of the password list.
+
+        :param document_id: The ID of the document
+        :return: The content of the document
+        """
+
+        logger.debug(f"Getting document with ID {document_id}")
+        url = self.document_url / "passwordlist" / str(document_id)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    str(url),
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    status = response.status
+                    document = await response.read()
+        except TimeoutError as e:
+            raise MissingCredentialsError(
+                f"Timeout retrieving document with ID {document_id}"
+            ) from e
+        except aiohttp.ClientError as e:
+            raise MissingCredentialsError(
+                f"Error retrieving document {document_id}: {e}"
+            ) from e
+
+        if status != 200:
+            raise MissingCredentialsError(
+                f"Failed to retrieve document {document_id}: " f"HTTP {status}"
+            )
+
+        if not document:
+            raise MissingCredentialsError(f"No document found with ID {document_id}")
+
+        logger.debug(f"Document {document_id} retrieved")
+        return document
 
     @abstractmethod
     async def new_credentials(self, credentials_dict: dict) -> bool:
