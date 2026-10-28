@@ -29,7 +29,7 @@ yarl = "^1.24.2"
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.20.2"
 ruff = "^0.1.15"
-black = "^26.5.1"
+black = "^26.10.1"
 pytest = "^9.0.3"
 pytest-asyncio = "^1.4.0"
 pytest-mock = "^3.15.1"
